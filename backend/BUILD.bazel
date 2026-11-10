@@ -1,0 +1,66 @@
+load("@rules_kmp//kotlin:defs.bzl", "kmp_jvm_module", "test_options")
+load("//:conventions.bzl", "CONVENTIONS")
+
+# The backend of the KotlinConf app: a Ktor server (Netty) over Exposed, the twin of the Gradle
+# kotlin("jvm") module with the serialization plugin. The JVM-only dependencies resolve in the jvm
+# platform of the @maven hub (the jvm variants of Koin and the Ktor server libraries). The admin
+# SPA that the Gradle build bundled into src/main/resources/admin/ is gone with its module
+# (app/adminApp). The test dependencies of the Gradle build are wired too (ktor-server-test-host
+# on kotlin.test, JUnit Platform like the Gradle useJUnitPlatform()); the test resources shadow
+# the main ones of the same path (years/..., the application config) through the resource_dirs
+# order of kmp_jvm_module. The default test target runs the hermetic classes; the two that read
+# the live Sessionize API (https://sessionize.com — the conference of the current year is
+# synchronized from it, which the ones of /2025/conference wait for) run as their own suite
+# target //backend:backend_api_test, so the hermetic ones cache independently of them. No
+# "external" tag for them (test_options(requires_network) would tag every test of the module,
+# the seven hermetic ones included): nothing blocks the sandbox network on this Bazel, so they
+# run and cache like any other test.
+
+BACKEND_DEPS = [
+    "//core:core",
+    "@maven//:ch_qos_logback_logback_classic",
+    "@maven//:com_h2database_h2",
+    "@maven//:com_zaxxer_HikariCP",
+    "@maven//:io_insert_koin_koin_core",
+    "@maven//:io_insert_koin_koin_ktor",
+    "@maven//:io_insert_koin_koin_logger_slf4j",
+    "@maven//:io_ktor_ktor_client_cio",
+    "@maven//:io_ktor_ktor_client_content_negotiation",
+    "@maven//:io_ktor_ktor_serialization_kotlinx_json",
+    "@maven//:io_ktor_ktor_server_auth",
+    "@maven//:io_ktor_ktor_server_auto_head_response",
+    "@maven//:io_ktor_ktor_server_call_logging",
+    "@maven//:io_ktor_ktor_server_compression",
+    "@maven//:io_ktor_ktor_server_conditional_headers",
+    "@maven//:io_ktor_ktor_server_config_yaml",
+    "@maven//:io_ktor_ktor_server_content_negotiation",
+    "@maven//:io_ktor_ktor_server_cors",
+    "@maven//:io_ktor_ktor_server_default_headers",
+    "@maven//:io_ktor_ktor_server_forwarded_header",
+    "@maven//:io_ktor_ktor_server_netty",
+    "@maven//:io_ktor_ktor_server_partial_content",
+    "@maven//:io_ktor_ktor_server_status_pages",
+    "@maven//:io_ktor_ktor_server_swagger",
+    "@maven//:org_jetbrains_exposed_exposed_core",
+    "@maven//:org_jetbrains_exposed_exposed_dao",
+    "@maven//:org_jetbrains_exposed_exposed_jdbc",
+    "@maven//:org_postgresql_postgresql",
+]
+
+kmp_jvm_module(
+    name = "backend",
+    module_name = "org.jetbrains.kotlinconf:backend",
+    conventions = CONVENTIONS,
+    main_class = "io.ktor.server.netty.EngineMain",
+    plugins = ["//:serialization_plugin"],
+    deps = BACKEND_DEPS,
+    test_deps = [
+        "@maven//:io_ktor_ktor_server_test_host",
+        "@maven//:org_jetbrains_kotlin_kotlin_test",
+    ],
+    test = test_options(
+        size = "small",
+        suites = {"api": {"classes": ["ApiTest", "YearBasedApiTest"]}},
+    ),
+    visibility = ["//visibility:public"],
+)

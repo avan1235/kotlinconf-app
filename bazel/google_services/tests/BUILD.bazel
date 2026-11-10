@@ -1,0 +1,32 @@
+load("@rules_kmp//kotlin:defs.bzl", "kmp_jvm_library", "kmp_jvm_test")
+load("//:conventions.bzl", "CONVENTIONS")
+
+# The test of //bazel:google_services.bzl's generator, on a google-services.json of made-up values:
+# the classes of the test library run on the BazelJUnitRunner of the conventions (the module wiring
+# adds that jar to every test, so this does too), on the generator module itself, its jvm leg
+# (//bazel/google_services:generator).
+kmp_jvm_library(
+    name = "generator_tests_lib",
+    testonly = True,
+    module_name = "org.jetbrains.kotlinconf.bazel.googleservices.tests",
+    fragments = ["main"],
+    srcs = {"GoogleServicesTest.kt": "main"},
+    deps = ["//bazel/google_services:generator"] + [
+        "@maven//:" + name
+        for name in [
+            "org_jetbrains_kotlin_kotlin_test",
+            "org_jetbrains_kotlin_kotlin_test_junit5",
+        ]
+    ],
+)
+
+kmp_jvm_test(
+    name = "generator_test",
+    size = "small",
+    timeout = "short",
+    test_jars = [":generator_tests_lib"],
+    deps = [
+        ":generator_tests_lib",
+        CONVENTIONS.jvm_test_runner,
+    ],
+)

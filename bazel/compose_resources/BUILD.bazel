@@ -1,0 +1,17 @@
+load("@rules_kmp//kotlin:defs.bzl", "kmp_jvm_module")
+load("//:conventions.bzl", "CONVENTIONS")
+
+# The generator of the Compose Multiplatform resources (see //bazel:compose_resources.bzl): a port
+# of the resource tasks of the Compose Gradle plugin (org.jetbrains.compose.resources), with the
+# same output: the .cvr files, the accessors and their content hashes, and the collectors. A
+# self-contained Kotlin module (no dependencies), built here by rules_kmp's own kmp_jvm_module;
+# //bazel:compose_resources.bzl runs its generator_bin java_binary.
+
+kmp_jvm_module(
+    name = "generator",
+    module_name = "org.jetbrains.kotlinconf.bazel:composeresources",
+    conventions = CONVENTIONS,
+    src_dirs = ["src"],
+    main_class = "org.jetbrains.kotlinconf.bazel.composeresources.MainKt",
+    visibility = ["//visibility:public"],
+)

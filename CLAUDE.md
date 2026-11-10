@@ -4,34 +4,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-The official KotlinConf app — a Kotlin Multiplatform project serving Android, iOS, JVM desktop, and WebAssembly clients, backed by a Ktor server. All client UI is shared via Compose Multiplatform.
+The official KotlinConf app — a Kotlin Multiplatform project serving Android, iOS, and JVM desktop clients, backed by a Ktor server. All client UI is shared via Compose Multiplatform.
 
 ## Build & Run Commands
 
-```bash
-# Run desktop app (hot reload enabled)
-./gradlew :app:desktopApp:hotRun -DmainClass=org.jetbrains.kotlinconf.MainKt
+The project is built with Bazel only; `ANDROID_HOME` must point at the Android SDK, and the iOS targets need Xcode on a Mac.
 
-# Run web app (wasmJs target, development mode)
-./gradlew :app:webApp:wasmJsBrowserDevelopmentRun
+```bash
+# Build everything the host can build, and run all tests
+bazel build //... && bazel test //...
+
+# Run desktop app
+bazel run //app/desktopApp
 
 # Run backend server
-./gradlew :backend:run
+bazel run //backend -- -port=8081
 
 # Run backend tests
-./gradlew :backend:test
+bazel test //backend:backend_test
 
 # Run shared module tests (JVM target)
-./gradlew :app:shared:jvmTest
-
-# Run core module tests
-./gradlew :core:jvmTest
-
-# Bump version across all platforms + generate library definitions
-./gradlew prepareRelease
+bazel test //app/shared:shared_jvm_test
 ```
 
-Android uses the `app.androidApp` run configuration in IDE; iOS uses `KotlinConfAppScheme`.
+Android: `bazel mobile-install //app/androidApp --adb="$ANDROID_HOME/platform-tools/adb"` installs and starts it on the connected device. iOS: `bazel run //app/iosApp:KotlinConf` installs and launches it in the booted simulator; `bazel run //app/iosApp:xcodeproj` generates an Xcode project for the Swift code.
 
 ## Module Structure
 
@@ -43,11 +39,10 @@ Android uses the `app.androidApp` run configuration in IDE; iOS uses `KotlinConf
                         Has its own resource class (UiRes) separate from the main app.
 
 :app:shared           — Main KMP client: all screens, ViewModels, navigation, ConferenceService, DI graph.
-                        Targets: android, jvm, iosArm64, iosSimulatorArm64, wasmJs, js.
+                        Targets: android, jvm, iosArm64, iosSimulatorArm64.
 
 :app:androidApp       — Android entry point only. Wires up AndroidAppGraph.
 :app:desktopApp       — JVM desktop entry point. Uses Compose Desktop.
-:app:webApp           — Wasm+JS entry points. Targets wasmJs and js, both browser.
 
 :backend              — Ktor/Netty server. Fetches data from Sessionize, stores votes/users in DB.
 ```
@@ -92,9 +87,8 @@ Each screen has a corresponding `*ViewModel` that takes `ConferenceService` as a
 **Source Set Hierarchy**
 
 The `app:shared` module defines custom intermediate source sets beyond the default hierarchy:
-- `nonAndroidMain` — shared by `iosMain`, `jvmMain`, and `webMain` (excludes Android)
-- `nonWebMain` — shared by `androidMain`, `iosMain`, and `jvmMain` (has `okio` dependency; web can't use it)
-- `webMain` — shared by `wasmJsMain` and `jsMain` (JS-specific timezone shim, browser APIs)
+- `nonAndroidMain` — shared by `iosMain` and `jvmMain` (excludes Android)
+- `nonWebMain` — shared by `androidMain`, `iosMain`, and `jvmMain` (has `okio` dependency)
 
 ## Backend Architecture
 
@@ -111,7 +105,7 @@ The `app:shared` module defines custom intermediate source sets beyond the defau
 
 ## Key Conventions
 
-**Version management**: Version numbers must stay in sync across Android `build.gradle.kts`, iOS `project.pbxproj`, iOS `Info.plist`, and `app/shared/src/commonMain/composeResources/values/version.xml`. Use `./gradlew prepareRelease` (which calls `updateVersion` and `exportLibraryDefinitions`) rather than editing these files manually.
+**Version management**: `version.bzl` is the single source of the version (`VERSION_NAME`/`VERSION_CODE`); the Android manifest, the iOS Info.plist and `version.xml` of the About screen read from it at build time. Bump the version there only.
 
 **Resources**: `app:shared` uses resource class `org.jetbrains.kotlinconf.generated.resources` (auto-generated). `app:ui-components` uses its own `UiRes` / `org.jetbrains.kotlinconf.ui.generated.resources`. Don't mix them.
 

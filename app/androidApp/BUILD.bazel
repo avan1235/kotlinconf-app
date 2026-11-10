@@ -1,0 +1,162 @@
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_android//android:rules.bzl", "android_binary")
+load("@rules_java//java:java_import.bzl", "java_import")
+load("@rules_kmp//kotlin:defs.bzl", "android_options", "kmp_library")
+load("//:conventions.bzl", "CONVENTIONS")
+load("//:version.bzl", "VERSION_CODE", "VERSION_NAME")
+load("//bazel:google_services.bzl", "google_services_resources")
+
+# The Android application of the KotlinConf app: an activity hosting the shared Compose App with
+# edge-to-edge, splash screen, local/push notification routing and Metro DI. The twin of the old
+# migration's kt_android_library + android_binary, with the library compiled by rules_kmp: a
+# kmp_library of the android target only. Its Gradle sources live in src/main/kotlin (the layout of
+# the Android Gradle plugin, not src/androidMain/kotlin), so they join the androidMain source set
+# through extra_srcs.
+#
+# Build the APK (the binary and its deps are built for //:arm64-v8a, the --android_platforms of
+# .bazelrc, whatever the platform of the build) with:
+#   bazel build //app/androidApp
+
+APPLICATION_ID = "com.jetbrains.kotlinconf"
+
+# The SDK versions of the app: the minimum release it runs on and the one it targets (the Gradle
+# libs.versions.toml; the compileSdk is the android_compile_sdk of the conventions).
+MIN_SDK = "28"
+
+TARGET_SDK = "37"
+
+# The manifest the library links its resources against: aapt2 rejects the <adaptive-icon> of the
+# launcher icon below API 26, and the minSdkVersion of the app (manifest_values) is an attribute of
+# android_binary only, so the resource android_library of the kmp_library gets a manifest of its
+# own with it (the fix of the old migration verbatim, kt_android_library → android_options). The
+# binary uses the real manifest, src/main/AndroidManifest.xml, below.
+write_file(
+    name = "android_lib_manifest",
+    out = "android_lib/AndroidManifest.xml",
+    content = [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
+        '    <uses-sdk android:minSdkVersion="%s" />' % MIN_SDK,
+        "</manifest>",
+        "",
+    ],
+)
+
+# The Firebase string resources of google-services.json (the output of the Google Services Gradle
+# plugin), generated at build time by the generator recovered from the old migration
+# (//bazel:google_services.bzl — rule-set-agnostic, only its _generator default changed).
+google_services_resources(
+    name = "google_services",
+    src = "google-services.json",
+    package = APPLICATION_ID,
+)
+
+# The app's own Kotlin code, an android_library through kmp_library's android target: the alias
+# android_lib IS the android_library (its Kotlin compilation, its resources and the resource
+# libraries of the deps merged, kotlin/private/kmp.bzl _declare_jvm_like), exactly what
+# android_binary consumes. The Compose and Metro compiler plugins compile the activity and the
+# graph. Resources: the app's res/ tree plus the Firebase strings; host_tests=False (the Gradle
+# build has none; the R class of the res tree needs enable_resources through the res target).
+# jvmTarget: the Gradle module pins 11, the rules_kmp toolchain is 21 globally (kmp.bzl:319
+# kotlinc_opts are per-library, not per-platform) — the same divergence as //app/shared, recorded
+# in the experiment log.
+kmp_library(
+    name = "android_lib",
+    module_name = "org.jetbrains.kotlinconf:androidApp",
+    targets = ["android"],
+    conventions = CONVENTIONS,
+    plugins = [
+        "//:metro_plugin",
+        "//:compose_plugin",
+    ],
+    extra_srcs = {"androidMain": glob(["src/main/kotlin/**/*.kt"])},
+    deps = {
+        "androidMain": [
+            "//app/shared",
+            "@maven//:androidx_activity_activity_compose",
+            "@maven//:androidx_core_core_splashscreen",
+            "@maven//:org_jetbrains_androidx_navigation3_navigation3_ui",
+            "@maven//:org_jetbrains_compose_runtime_runtime",
+            "@maven//:org_jetbrains_compose_ui_ui_tooling_preview",
+            "@maven//:dev_zacsweers_metro_runtime",
+            "@maven//:dev_zacsweers_metro_metrox_android",
+            "@maven//:dev_zacsweers_metro_metrox_viewmodel_compose",
+            "@maven//:io_github_mirzemehdi_kmpnotifier",
+        ],
+    },
+    android = android_options(
+        namespace = APPLICATION_ID,
+        manifest = ":android_lib_manifest",
+        resource_files = glob(["src/main/res/**"]) + [":google_services"],
+        host_tests = False,
+    ),
+    visibility = ["//visibility:private"],
+)
+
+# The desugar-deps corrections of the APK (row 16): both jars' Gradle metadata scopes their
+# dependencies runtime-only, so the lock records the edges as runtime_deps, the hub's jar targets
+# carry no compile deps, and Bazel's per-jar desugaring runs with an empty classpath — the
+# desugarer records the interfaces the desugared lambdas need (CancellableContinuation, Job,
+# Deferred; SerialDescriptor, SerializersModuleCollector) as missing in the jar's desugar_deps
+# metadata and the deploy jar's strict check rejects them because they have default methods
+# ("... needed on the classpath for desugaring ..."). The re-import gives the raw jar the edges
+# as compile deps — the recipe proven by the markdown renderer in //app/ui-components: the jars
+# come straight from the pin's http_file repos (use_repo'd in MODULE.bazel, which also cuts the
+# transitive edges with omit_dependency), the deps are the android-platform hub targets of the
+# lock's own runtime sets (maven_jar builds the same JavaInfo shape, deps merged and
+# exports = deps). Nothing compiles against these jars — they serve firebase-common's and
+# ktor-openapi-schema's runtime — so they join the binary.
+java_import(
+    name = "kotlinx_coroutines_play_services",
+    jars = ["@maven__org_jetbrains_kotlinx_kotlinx_coroutines_play_services_1_11_0_kotlinx_coroutines_play_services_1_11_0_jar//file"],
+    deps = [
+        "@maven//android:com_google_android_gms_play_services_tasks",
+        "@maven//android:org_jetbrains_kotlin_kotlin_stdlib",
+        "@maven//android:org_jetbrains_kotlinx_kotlinx_coroutines_bom",
+        "@maven//android:org_jetbrains_kotlinx_kotlinx_coroutines_core",
+    ],
+    visibility = ["//visibility:private"],
+)
+
+java_import(
+    name = "kaml_jvm",
+    jars = ["@maven__com_charleskorn_kaml_kaml_jvm_0_79_0_kaml_jvm_0_79_0_jar//file"],
+    deps = [
+        "@maven//android:com_squareup_okio_okio",
+        "@maven//jvm:it_krzeminski_snakeyaml_engine_kmp",
+        "@maven//android:org_jetbrains_kotlin_kotlin_stdlib",
+        "@maven//android:org_jetbrains_kotlinx_kotlinx_serialization_core",
+    ],
+    visibility = ["//visibility:private"],
+)
+
+# The debug APK: the manifest values of the app (the version is the one of //:version.bzl), the
+# library manifests of the deps merged in (the alarm receiver of app/shared, the Firebase services
+# of KMPNotifier). The dexing is the incremental one of rules_android (the default): every jar is
+# desugared before it is dexed, which the libraries compiled with Kotlin 2 (Coil, the Markdown
+# renderer, the settings library, ...) need for their invokedynamic lambdas; the monolithic dexer
+# (incremental_dexing = 0) never desugars, so with it they either fail to dex or, with a min API of
+# 26+, reach the device as invoke-custom instructions the runtime rejects.
+#
+# NOTE: this android_binary is hand-wired over the kmp_library's android_library output —
+# rules_kmp's public surface has no android_binary of its own (kotlin/defs.bzl ships no app rule;
+# the AAR of a library is as far as it goes). The old migration wired the same rules_android
+# android_binary over its kt_android_library; here the packaging rule comes from the consumer,
+# exactly the rules_kmp model.
+android_binary(
+    name = "androidApp",
+    custom_package = APPLICATION_ID,
+    manifest = "src/main/AndroidManifest.xml",
+    manifest_values = {
+        "applicationId": APPLICATION_ID,
+        "minSdkVersion": MIN_SDK,
+        "targetSdkVersion": TARGET_SDK,
+        "versionCode": VERSION_CODE,
+        "versionName": VERSION_NAME,
+    },
+    deps = [
+        ":android_lib",
+        ":kotlinx_coroutines_play_services",
+        ":kaml_jvm",
+    ],
+)

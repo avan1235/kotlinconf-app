@@ -1,0 +1,128 @@
+load("@rules_android//android:rules.bzl", "aar_import", "android_library")
+load("@rules_java//java:java_import.bzl", "java_import")
+load("@rules_kmp//kotlin:defs.bzl", "android_options", "kmp_library")
+load("//:conventions.bzl", "CONVENTIONS")
+load("//bazel:compose_resources.bzl", "compose_resources")
+
+# The UI components of the apps: the theme, the Compose components and the UiRes resources, a Kotlin
+# Multiplatform library of the JVM, Android and iOS targets (the Gradle source set tree minus the
+# web targets; the Ktor engine of Coil's network loader is OkHttp on the JVM and Android, Darwin on
+# the iOS targets).
+
+UI_COMPONENTS_EXPORTS = [
+    "@maven//:org_jetbrains_compose_runtime_runtime",
+    "@maven//:org_jetbrains_compose_foundation_foundation",
+    "@maven//:org_jetbrains_compose_animation_animation",
+    "@maven//:org_jetbrains_compose_components_components_resources",
+]
+
+UI_COMPONENTS_DEPS = [
+    "@maven//:org_jetbrains_compose_material_material_ripple",
+    "@maven//:org_jetbrains_compose_ui_ui_tooling_preview",
+    "@maven//:io_coil_kt_coil3_coil_compose",
+    "@maven//:io_coil_kt_coil3_coil_network_ktor3",
+    "@maven//:io_coil_kt_coil3_coil_svg",
+    "@maven//:org_jetbrains_androidx_lifecycle_lifecycle_runtime_compose",
+    "@maven//:org_jetbrains_androidx_lifecycle_lifecycle_viewmodel_compose",
+]
+
+# The markdown renderer enters as a plain dep on the JVM and iOS (the hub alias) but as a local
+# re-import on Android. Its published Gradle metadata declares the Compose dependencies
+# compileOnly, so the lock graph has no edges to them and Bazel's strict desugaring check of the
+# APK deploy jar rejects the renderer jar (RowScope "needed on the classpath for desugaring
+# MarkdownTableKt... add the missing dependency to the target containing the latter"): every
+# jar's classes must resolve from the deps of the target owning the jar. The old migration
+# restored the edges in the resolver (kmp_maven.install extra_dependencies); rules_kmp's maven
+# extension has no such tag (maven/extension.bzl: lock/repository/artifact/compile_version/
+# omit_dependency only), so the consumer re-imports the AAR with them (foundation + runtime +
+# ui, the old migration's proven set), mirroring the hub's own maven_aar wrapper (the
+# android_library export makes an AAR's classes visible on compile classpaths; aar_import alone
+# only exports other imports — maven/import.bzl:58-75).
+aar_import(
+    name = "markdown_renderer_android_aar",
+    # The raw downloaded AAR, straight from the pin's http_file repo (use_repo'd in MODULE.bazel;
+    # the hub's own targets own the jar with the lock's edges only). Neither @maven//android:<name>
+    # (the hub's android_library wrapper — its classes are its imports, invisible to this
+    # aar_import) nor @maven//android:<name>.aar (that wrapper's implicit AAR output, empty of
+    # classes because the wrapper owns none) nor the hub's aar_import target (DefaultInfo is not a
+    # single file) is the raw artifact.
+    aar = "@maven__com_mikepenz_multiplatform_markdown_renderer_android_0_39_2_multiplatform_markdown_renderer_aar//file",
+    # The Compose deps are the android platform's hub targets, not the root aliases: the root
+    # aliases are the jvm platform's (maven/extension.bzl builds them from platform == "jvm"
+    # entries only), and the plain aar_import rule has no per-platform rewriting like kmp_library's
+    # deps dicts — the jvm jars miss the android classes (the check caught AndroidPath_androidKt).
+    deps = [
+        "@maven//android:org_jetbrains_compose_foundation_foundation",
+        "@maven//android:org_jetbrains_compose_runtime_runtime",
+        "@maven//android:org_jetbrains_compose_ui_ui",
+        # The parser the renderer generates code against, also compileOnly in its Gradle metadata:
+        # resolved for android in the lock (the hub target exists) but with no edge from the
+        # renderer, so its classes would be missing from the desugar classpath the same way.
+        "@maven//android:org_jetbrains_markdown",
+        # The immutable collections the renderer's classes reference; an edge of its lock entry
+        # that the re-import must carry over, or the check fails the same way (PersistentMap).
+        "@maven//android:org_jetbrains_kotlinx_kotlinx_collections_immutable",
+    ],
+)
+
+android_library(
+    name = "markdown_renderer_android",
+    exports = [":markdown_renderer_android_aar"],
+)
+
+KTOR_OKHTTP = "@maven//:io_ktor_ktor_client_okhttp"
+KTOR_DARWIN = "@maven//:io_ktor_ktor_client_darwin"
+
+# The Compose resources of the UI components: a public UiRes class, so //app/shared and the apps use
+# the icons, strings and fonts of the components. The generated sources join the common source set
+# (the UiRes class and its accessors) and every platform's own source set (the `actual` collectors);
+# the prepared resource tree goes into the Android assets and into the resource jar on the JVM
+# classpath of the desktop app (a java_import, kmp_library has no resource_jars).
+compose_resources(
+    name = "ui_components_resources",
+    srcs = glob(["src/commonMain/composeResources/**"]),
+    package = "org.jetbrains.kotlinconf.ui.generated.resources",
+    public = True,
+    res_class = "UiRes",
+    resources_dir = "src/commonMain/composeResources",
+    visibility = ["//app:__subpackages__"],
+)
+
+java_import(
+    name = "ui_components_resources_jar_import",
+    jars = [":ui_components_resources_jar"],
+    visibility = ["//visibility:public"],
+)
+
+kmp_library(
+    name = "ui-components",
+    module_name = "org.jetbrains.kotlinconf:ui-components",
+    targets = [
+        "jvm",
+        "android",
+        "ios_arm64",
+        "ios_simulator_arm64",
+    ],
+    conventions = CONVENTIONS,
+    plugins = ["//:compose_plugin"],
+    kotlinc_opts = ["-Xexpect-actual-classes"],
+    exports = {"commonMain": UI_COMPONENTS_EXPORTS},
+    deps = {
+        "commonMain": UI_COMPONENTS_DEPS,
+        "nonAndroidMain": ["@maven//:com_mikepenz_multiplatform_markdown_renderer"],
+        "androidMain": [KTOR_OKHTTP, "raw::markdown_renderer_android"],
+        "jvmMain": [KTOR_OKHTTP],
+        "iosMain": [KTOR_DARWIN],
+    },
+    extra_srcs = {"commonMain": [":ui_components_resources_common_srcs"]},
+    platform_srcs = {"platformMain": [":ui_components_resources_platform_srcs"]},
+    runtime_only = {"jvmMain": ["raw::ui_components_resources_jar_import"]},
+    android = android_options(
+        namespace = "com.jetbrains.kotlinconf.ui",
+        manifest = "src/androidMain/AndroidManifest.xml",
+        assets = [":ui_components_resources_files"],
+        assets_dir = "ui_components_resources/resources",
+        host_tests = False,
+    ),
+    visibility = ["//visibility:public"],
+)

@@ -6,8 +6,14 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
 
+    <!-- The component factory that constructor-injects MainActivity (Metro). Both the metrox-android
+         and the androidx.core library manifests set it; the Gradle merger ends up with the Metro one,
+         the Bazel build (rules_android) merges the libraries alphabetically, so androidx.core comes
+         first and its factory is kept (a merger warning, not an error). Declaring the Metro factory
+         here makes the result the same under both builds. -->
     <application
         android:allowBackup="true"
+        android:appComponentFactory="dev.zacsweers.metrox.android.MetroAppComponentFactory"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="@xml/backup_rules"
@@ -15,7 +21,8 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:name="org.jetbrains.kotlinconf.android.KotlinConfApplication"
-        android:theme="@style/Theme.App.Splash">
+        android:theme="@style/Theme.App.Splash"
+        tools:replace="android:appComponentFactory">
         <activity
             android:name="org.jetbrains.kotlinconf.android.MainActivity"
             tools:ignore="Instantiatable"

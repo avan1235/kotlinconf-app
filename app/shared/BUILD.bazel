@@ -1,0 +1,193 @@
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_java//java:java_import.bzl", "java_import")
+load("@rules_kmp//kotlin:defs.bzl", "android_options", "kmp_library", "kmp_native_framework", "test_options")
+load("//:conventions.bzl", "CONVENTIONS")
+load("//:version.bzl", "VERSION_CODE", "VERSION_NAME")
+load("//bazel:compose_resources.bzl", "compose_resources")
+
+# The shared module of the apps: the screens, the services, the storage and the Metro dependency
+# graph, a Kotlin Multiplatform library for the JVM, Android and the iOS targets, with the Compose
+# and kotlinx.serialization compiler plugins and the Metro dependency injection. The Gradle source set tree maps to
+# the default hierarchy template of rules_kmp plus the source set groups of the conventions:
+# commonMain - nonAndroidMain - (ios|jvm)Main and commonMain - nonWebMain - (android|ios|jvm)Main
+# (okio on nonWebMain, like the Gradle build; webMain is dropped, no js/wasm targets).
+
+# The commonMain `api` dependencies: the consumers of the module (the apps) see them too (exports).
+SHARED_EXPORTS = [
+    "//core:core",
+    "//app/ui-components:ui-components",
+    "@maven//:org_jetbrains_compose_runtime_runtime",
+    "@maven//:org_jetbrains_compose_foundation_foundation",
+    "@maven//:org_jetbrains_compose_animation_animation",
+    "@maven//:org_jetbrains_compose_components_components_resources",
+    "@maven//:io_ktor_ktor_client_logging",
+    "@maven//:io_ktor_ktor_serialization_kotlinx_json",
+    "@maven//:io_ktor_ktor_client_content_negotiation",
+    "@maven//:io_ktor_ktor_utils",
+    "@maven//:io_github_mirzemehdi_kmpnotifier",
+]
+
+# The commonMain `implementation` dependencies (with the Metro runtime of the Metro wiring).
+SHARED_DEPS = [
+    "@maven//:org_jetbrains_compose_ui_ui_tooling_preview",
+    "@maven//:dev_zacsweers_metro_runtime",
+    "@maven//:dev_zacsweers_metro_metrox_viewmodel_compose",
+    "@maven//:org_jetbrains_kotlinx_kotlinx_datetime",
+    "@maven//:org_jetbrains_androidx_lifecycle_lifecycle_runtime_compose",
+    "@maven//:org_jetbrains_androidx_navigation3_navigation3_ui",
+    "@maven//:org_jetbrains_androidx_lifecycle_lifecycle_viewmodel_navigation3",
+    "@maven//:io_ktor_ktor_client_core",
+    "@maven//:com_mikepenz_aboutlibraries_core",
+    "@maven//:io_coil_kt_coil3_coil_compose",
+    "@maven//:com_russhwolf_multiplatform_settings",
+    "@maven//:com_russhwolf_multiplatform_settings_serialization",
+    "@maven//:com_russhwolf_multiplatform_settings_make_observable",
+    "@maven//:com_russhwolf_multiplatform_settings_coroutines",
+    "@maven//:com_doist_x_normalize",
+]
+
+# The dependencies of the platform source sets.
+ANDROID_DEPS = [
+    "@maven//:com_caverock_androidsvg_aar",
+    "@maven//:androidx_preference_preference_ktx",
+    "@maven//:io_ktor_ktor_client_okhttp",
+    "@maven//:dev_zacsweers_metro_metrox_android",
+]
+
+IOS_DEPS = [
+    "@maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core",
+    "@maven//:io_ktor_ktor_client_darwin",
+]
+
+JVM_DEPS = [
+    "@maven//:io_ktor_ktor_client_okhttp",
+    "@maven//:org_slf4j_slf4j_nop",
+]
+
+# The compiler plugins of every platform compilation, the Metro plugin first: the Metro Gradle
+# plugin orders it before the Compose compiler. Metro is the //:metro_plugin compiler plugin, the
+# recipe of the old rules_kotlin migration. The attribution re-test (see the "Metro attribution
+# re-test" rows of the experiment log) settled the root cause of the empty KSP-era srcjar:
+# metro-compiler 1.4.0 is a pure Kotlin compiler plugin (0 KSP/SymbolProcessor entries in its
+# 2028-file jar; ServiceLoader
+# registers only MetroCompilerPluginRegistrar/MetroCommandLineProcessor + FIR/IR extension
+# factories), so wiring it as a ksp_processors entry made KSP2 discover no provider and emit a
+# 22-byte empty srcjar at exit 0 -- with or without the plugin option set supplied via the
+# sanctioned ksp_options attr. The IR plugin generates the complete graph; the KSP route does not
+# exist for this artifact. Both wirings use the same metro-compiler 1.4.0 jar (@maven//tools:).
+SHARED_PLUGINS = [
+    "//:metro_plugin",
+    "//:compose_plugin",
+    "//:serialization_plugin",
+]
+
+# The `app_version` string of the About screen, "<version> (<build>)", from //:version.bzl: a
+# generated resource file of the composeResources directory.
+write_file(
+    name = "version_xml",
+    out = "src/commonMain/composeResources/values/version.xml",
+    content = [
+        "<resources>",
+        '    <string name="app_version">%s (%s)</string>' % (VERSION_NAME, VERSION_CODE),
+        "</resources>",
+        "",
+    ],
+)
+
+# The Compose resources of the shared module, an internal `Res` class: the strings (values,
+# values-de), drawables (drawable, drawable-dark), fonts and the raw files (files/aboutlibraries.json,
+# the export of the AboutLibraries Gradle plugin, committed; refresh it by hand when the dependencies
+# change).
+compose_resources(
+    name = "shared_resources",
+    srcs = glob(["src/commonMain/composeResources/**"]) + [":version_xml"],
+    package = "org.jetbrains.kotlinconf.generated.resources",
+    resources_dir = "src/commonMain/composeResources",
+    visibility = ["//app:__subpackages__"],
+)
+
+# The resource jar on the JVM classpath: kmp_library has no resource_jars, so it is a java_import on
+# the runtime classpath (loaded by //app/desktopApp).
+java_import(
+    name = "shared_resources_jar_import",
+    jars = [":shared_resources_jar"],
+    visibility = ["//visibility:public"],
+)
+
+# The generated sources of the resources join the common source set (the Res class and its
+# accessors) and each platform compilation (the `actual` collectors); the resource tree goes into the
+# Android assets, where the resources runtime reads it. The alias //app/shared selects the variant of
+# its consumer. The Android options: the namespace and the manifest of the Gradle build (the alarm
+# receiver of the local notifications and its permissions), Android resources on (Gradle
+# androidResources.enable = true), no host tests.
+kmp_library(
+    name = "shared",
+    module_name = "org.jetbrains.kotlinconf:shared",
+    targets = [
+        "jvm",
+        "android",
+        "ios_arm64",
+        "ios_simulator_arm64",
+    ],
+    conventions = CONVENTIONS,
+    plugins = SHARED_PLUGINS,
+    kotlinc_opts = ["-Xexpect-actual-classes"],
+    exports = {"commonMain": SHARED_EXPORTS},
+    deps = {
+        "commonMain": SHARED_DEPS,
+        "nonWebMain": ["@maven//:com_squareup_okio_okio"],
+        "androidMain": ANDROID_DEPS,
+        "jvmMain": JVM_DEPS,
+        "iosMain": IOS_DEPS,
+        "commonTest": [
+            "@maven//:org_jetbrains_kotlin_kotlin_test",
+            "@maven//:com_russhwolf_multiplatform_settings_test",
+            "@maven//:org_jetbrains_kotlinx_kotlinx_coroutines_test",
+        ],
+        "jvmTest": [
+            "@maven//:org_jetbrains_kotlin_kotlin_test",
+            "@maven//:org_jetbrains_kotlinx_kotlinx_coroutines_test",
+        ],
+    },
+    extra_srcs = {"commonMain": [":shared_resources_common_srcs"]},
+    platform_srcs = {"platformMain": [":shared_resources_platform_srcs"]},
+    runtime_only = {"jvmMain": ["raw::shared_resources_jar_import"]},
+    android = android_options(
+        namespace = "org.jetbrains.kotlinconf",
+        manifest = "src/androidMain/AndroidManifest.xml",
+        enable_resources = True,
+        assets = [":shared_resources_files"],
+        assets_dir = "shared_resources/resources",
+        host_tests = False,
+    ),
+    test = test_options(framework = "junit4"),
+    visibility = ["//visibility:public"],
+)
+
+# The static iOS frameworks of the Xcode app, the twins of the Gradle binaries { iosArm64,
+# iosSimulatorArm64 }.isStatic.framework of the Gradle build (app/shared/build.gradle.kts): the
+# rules_kmp framework rule builds them file by file (the binary, the KDoc header, the Info.plist
+# and the module.modulemap, -Xexport-kdoc -Xstatic-framework -g by default) so that rules_apple's
+# apple_static_framework_import can import them, exactly the pattern the old migration used.
+# The own API of the module only is in the header (deps, not exports): the Gradle default and
+# the transitive_exports = False of the old migration. The Compose resources ride along in the
+# compose_resources output group of //app/iosApp:shared_resources_bundle.
+#
+# The konan target of the framework is explicit (the rule has no platform detection), and the
+# targets build on the macOS host like every Kotlin/Native target of rules_kmp (its default
+# target_compatible_with): the konan links cross-compile to the iOS targets from there, and the
+# app takes the files through the host_files bridge of //app/iosApp.
+[
+    kmp_native_framework(
+        name = "shared_" + target + "_framework",
+        base_name = "shared",
+        bundle_id = "org.jetbrains.kotlinconf.shared",
+        deps = [":shared_" + target],
+        target = target,
+        visibility = ["//app/iosApp:__pkg__"],
+    )
+    for target in [
+        "ios_arm64",
+        "ios_simulator_arm64",
+    ]
+]

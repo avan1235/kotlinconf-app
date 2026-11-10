@@ -1,0 +1,215 @@
+load("@rules_apple//apple:apple.bzl", "apple_static_framework_import", "local_provisioning_profile")
+load("@rules_apple//apple:ios.bzl", "ios_application")
+load("@rules_apple//apple:resources.bzl", "apple_resource_group")
+load("@rules_apple//apple:versioning.bzl", "apple_bundle_version")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_swift//swift:swift.bzl", "swift_library")
+load("@rules_xcodeproj//xcodeproj:defs.bzl", "top_level_target", "xcodeproj")
+load("//:version.bzl", "VERSION_CODE", "VERSION_NAME")
+load("//bazel:compose_resources.bzl", "compose_resources_bundle")
+load("//bazel:host_files.bzl", "host_files")
+
+# The iOS application of the KotlinConf app: a SwiftUI shell (iosApp/*.swift) hosting the shared
+# Compose UI through the static Kotlin/Native framework `shared` of app/shared, with Firebase
+# Messaging for the push notifications. rules_apple builds the whole bundle: the framework, the
+# Swift sources, the asset catalog, the Compose resources and the Firebase SDK (built from the
+# Swift package of Package.swift by rules_swift_package_manager).
+#
+#   bazel build //app/iosApp:KotlinConf      # KotlinConf.ipa, for the arm64 simulator (.bazelrc)
+#   bazel run //app/iosApp:KotlinConf        # installs and launches it in the booted simulator
+#   bazel build --ios_multi_cpus=arm64 -c opt //app/iosApp:KotlinConf   # a signed device build
+#   bazel run //app/iosApp:xcodeproj         # generates KotlinConf.xcodeproj for Xcode
+#
+# ios_application builds its deps for the iOS platform of --ios_multi_cpus (the simulator of an
+# arm64 Mac by default, see .bazelrc); the targets it builds in that configuration only are
+# marked with IOS_ONLY, while the frameworks of app/shared build on the macOS host and reach
+# the app through host_files. `bazel build //...` builds the app with everything else on a Mac.
+IOS_ONLY = ["@platforms//os:ios"]
+
+BUNDLE_ID = "com.kotlinconf.iosapp"
+
+config_setting(
+    name = "device",
+    values = {"ios_multi_cpus": "arm64"},
+)
+
+# The framework files, built in the host configuration: rules_kmp compiles Kotlin/Native on the
+# macOS host only (the konan target of the framework is explicit, it cross-compiles from there),
+# while the app below builds in the Apple platform of --ios_multi_cpus; host_files passes the files
+# of the konan target --ios_multi_cpus selects (a device build takes the ios_arm64 one) from one
+# configuration to the other.
+[
+    host_files(
+        name = "shared_files_" + name,
+        deps = [framework],
+    )
+    for name, framework in {
+        "device": "//app/shared:shared_ios_arm64_framework",
+        "simulator": "//app/shared:shared_ios_simulator_arm64_framework",
+    }.items()
+]
+
+# rules_apple imports a framework from its files: the file-by-file static framework of rules_kmp
+# (the binary, the header, the Info.plist and the module.modulemap, see app/shared/BUILD.bazel).
+# What konanc links an iOS binary with (linkerKonanFlags of konan.properties) is declared on the
+# import: the Kotlin/Native runtime is C++ and Objective-C.
+[
+    apple_static_framework_import(
+        name = "shared_import_" + name,
+        framework_imports = [":shared_files_" + name],
+        sdk_dylibs = [
+            "c++",
+            "objc",
+        ],
+        sdk_frameworks = [
+            "Foundation",
+            "UIKit",
+        ],
+        target_compatible_with = IOS_ONLY,
+    )
+    for name in [
+        "device",
+        "simulator",
+    ]
+]
+
+# The Swift sources: `import shared` is the framework of the konan target --ios_multi_cpus selects
+# (a device build imports the ios_arm64 one), FirebaseCore and FirebaseMessaging the products of
+# the Firebase package (@swiftpkg_firebase_ios_sdk, see MODULE.bazel). Swift 5 language mode, as
+# the Xcode project compiled them.
+swift_library(
+    name = "KotlinConf_lib",
+    srcs = glob(["iosApp/*.swift"]),
+    copts = [
+        "-swift-version",
+        "5",
+    ],
+    module_name = "iosApp",
+    target_compatible_with = IOS_ONLY,
+    deps = select({
+        ":device": [":shared_import_device"],
+        "//conditions:default": [":shared_import_simulator"],
+    }) + [
+        "@swiftpkg_firebase_ios_sdk//:FirebaseCore",
+        "@swiftpkg_firebase_ios_sdk//:FirebaseMessaging",
+    ],
+)
+
+# The `compose-resources` directory of the app bundle, where the Compose resources runtime of iOS
+# reads the resources of app/shared (`Res`) and app/ui-components (`UiRes`) from
+# (`composeResources/<package>/...`). The directory is named after the target: as a structured
+# resource, it lands at the root of the bundle under that name, as it is.
+compose_resources_bundle(
+    name = "compose-resources",
+    deps = [
+        "//app/shared:shared_resources",
+        "//app/ui-components:ui_components_resources",
+    ],
+)
+
+# The resources of the bundle: the asset catalog (the launch screen image; the app icon is apart,
+# below), the Firebase configuration and the privacy manifest, which rules_apple processes or
+# copies to the root of the bundle, and the Compose resources directory.
+apple_resource_group(
+    name = "resources",
+    resources = [
+        "PrivacyInfo.xcprivacy",
+        "iosApp/GoogleService-Info.plist",
+    ] + glob(["iosApp/Assets.xcassets/**"]),
+    structured_resources = [":compose-resources"],
+)
+
+apple_bundle_version(
+    name = "version",
+    build_version = VERSION_CODE,
+    short_version_string = VERSION_NAME,
+)
+
+# The app icon: the Icon Composer bundle, from which actool (Xcode 26+) also renders the icon sizes
+# of the iOS releases before 26. It is the only icon source: rules_apple takes either an .icon bundle
+# or an .appiconset, not both.
+ios_application(
+    name = "KotlinConf",
+    app_icons = glob(["iosApp/AppIcon.icon/**"]),
+    bundle_id = BUNDLE_ID,
+    entitlements = "iosApp/iosApp.entitlements",
+    families = [
+        "iphone",
+        "ipad",
+    ],
+    infoplists = ["iosApp/Info.plist"],
+    # Firebase is linked from static libraries whose Objective-C categories the linker would
+    # otherwise drop (SwiftPackageManager.md of firebase-ios-sdk), and Firebase Messaging stores
+    # its messages with the sqlite3 of the SDK, which SwiftPM links by autolinking (Bazel compiles
+    # Objective-C without modules, so without the autolink hints).
+    linkopts = [
+        "-ObjC",
+        "-lsqlite3",
+    ],
+    minimum_os_version = "16.0",
+    # Device builds (--ios_multi_cpus=arm64) sign with the profile of the team, which must be
+    # installed on the machine (~/Library/MobileDevice/Provisioning Profiles); simulator builds
+    # need none.
+    provisioning_profile = select({
+        ":device": ":provisioning_profile",
+        "//conditions:default": None,
+    }),
+    resources = [":resources"],
+    version = ":version",
+    # The generator of the Xcode project (:xcodeproj) runs in a repository of rules_xcodeproj.
+    visibility = ["@rules_xcodeproj//xcodeproj:generated"],
+    deps = [
+        ":KotlinConf_lib",
+        ":firebase_messaging_version",
+    ],
+)
+
+local_provisioning_profile(
+    name = "provisioning_profile",
+    profile_name = "KotlinConf iOS App for notifications",
+    tags = ["manual"],
+    team_id = "2ZEFAR8TH3",
+)
+
+# The version globals of the FirebaseMessaging pod, which CocoaPods generates for the pod build
+# but the Swift package build of Firebase does not have, and kmpnotifier's cinterop links against
+# (see FirebaseMessagingVersion.c and bazel/pod_link.bzl).
+cc_library(
+    name = "firebase_messaging_version",
+    srcs = ["FirebaseMessagingVersion.c"],
+    target_compatible_with = IOS_ONLY,
+)
+
+# The IPA has the bundle id, an arm64 simulator executable and the Objective-C classes of the Kotlin
+# code of app/shared and of Firebase linked in, and the resources the app reads at runtime.
+sh_test(
+    name = "ipa_test",
+    size = "small",
+    srcs = ["check_ios_app.sh"],
+    args = [
+        "$(rootpath :KotlinConf.ipa)",
+        BUNDLE_ID,
+        VERSION_NAME,
+        VERSION_CODE,
+    ],
+    data = [":KotlinConf.ipa"],
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
+# The Xcode project of the Bazel targets, for working on the Swift sources in Xcode:
+# `bazel run //app/iosApp:xcodeproj` writes KotlinConf.xcodeproj here (ignored by git).
+xcodeproj(
+    name = "xcodeproj",
+    project_name = "KotlinConf",
+    tags = ["manual"],
+    top_level_targets = [
+        top_level_target(
+            ":KotlinConf",
+            target_environments = [
+                "device",
+                "simulator",
+            ],
+        ),
+    ],
+)

@@ -1,0 +1,26 @@
+load("@rules_kmp//kotlin:defs.bzl", "kmp_jvm_module", "test_options")
+load("//:conventions.bzl", "CONVENTIONS")
+
+# The generator of the Firebase string resources of an Android app (see //bazel:google_services.bzl):
+# the values.xml the Google Services Gradle plugin derives from google-services.json. Only the
+# kotlinx.serialization runtime is needed (Json.parseToJsonElement, no @Serializable), so no
+# serialization plugin. A self-contained Kotlin module built by rules_kmp's own kmp_jvm_module;
+# //bazel:google_services.bzl runs its generator_bin java_binary.
+#
+# The generator test of the old migration comes back as the module's own test target, the
+# kmp_jvm_module layout (test/ next to src/, outside the src glob): a separate tests package with
+# rules_kotlin's kt_jvm_test would need the old @maven_kotlinconf hub. The framework deps of
+# test_options(framework = "junit4") provide kotlin-test, and its JUnit 4 annotations reach the JUnit
+# Platform through the vintage engine of the jvm_test_runner (maven/libs.bzl) — no test deps.
+
+kmp_jvm_module(
+    name = "generator",
+    module_name = "org.jetbrains.kotlinconf.bazel:googleservices",
+    conventions = CONVENTIONS,
+    src_dirs = ["src"],
+    test_src_dirs = ["test"],
+    test = test_options(framework = "junit4"),
+    main_class = "org.jetbrains.kotlinconf.bazel.googleservices.MainKt",
+    deps = ["@maven//:org_jetbrains_kotlinx_kotlinx_serialization_json"],
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,55 @@
+load("@rules_java//java:java_import.bzl", "java_import")
+load("@rules_kmp//kotlin:defs.bzl", "kmp_jvm_module")
+load("//:conventions.bzl", "CONVENTIONS")
+load("//bazel:compose_resources.bzl", "compose_resources")
+
+# The desktop app: a Compose Desktop JVM module (kmp_jvm_module), the twin of the Gradle
+# kotlin("jvm") module with the Compose and Metro plugins. The Compose resources are a JVM-only
+# module (a `main` source set), so the collectors are plain declarations, not expect/actual ones.
+
+compose_resources(
+    name = "desktop_resources",
+    srcs = glob(["src/main/composeResources/**"]),
+    multiplatform = False,
+    package = "org.jetbrains.kotlinconf.generated.resources.desktop",
+    resources_dir = "src/main/composeResources",
+    source_set = "main",
+)
+
+# kmp_jvm_module has no resource_jars either: the resource jar joins the runtime classpath as a
+# java_import, together with the resource jars of //app/shared and //app/ui-components (kmp_library
+# has no resource_jars, their java_imports are runtime deps of this module too).
+java_import(
+    name = "desktop_resources_jar_import",
+    jars = [":desktop_resources_jar"],
+)
+
+kmp_jvm_module(
+    name = "desktopApp",
+    module_name = "org.jetbrains.kotlinconf:desktopApp",
+    conventions = CONVENTIONS,
+    main_class = "org.jetbrains.kotlinconf.MainKt",
+    plugins = [
+        # Metro as a compiler plugin: kmp_jvm_module has no KSP wiring (kotlin/private/jvm.bzl).
+        "//:metro_plugin",
+        "//:compose_plugin",
+    ],
+    extra_srcs = [":desktop_resources_common_srcs"],
+    deps = [
+        "//app/shared:shared",
+        "@maven//:org_jetbrains_compose_components_components_resources",
+        "@maven//:org_jetbrains_compose_foundation_foundation",
+        "@maven//:org_jetbrains_compose_runtime_runtime",
+        "@maven//:org_jetbrains_compose_ui_ui_tooling_preview",
+        "@maven//:org_jetbrains_compose_desktop_desktop_jvm",
+        "@maven//:org_jetbrains_kotlinx_kotlinx_coroutines_swing",
+        "@maven//:dev_zacsweers_metro_runtime",
+    ],
+    runtime_only = [
+        "raw://app/shared:shared_resources_jar_import",
+        "raw://app/ui-components:ui_components_resources_jar_import",
+        "raw::desktop_resources_jar_import",
+        "@maven//:org_jetbrains_skiko_skiko_awt_runtime_macos_arm64",
+    ],
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,36 @@
+# The JDK of the workspace: a remote JDK 21 pinned by Bazel (hermetic), like the rules_kmp example.
+build --java_language_version=21
+build --tool_java_language_version=21
+build --java_runtime_version=remotejdk_21
+build --tool_java_runtime_version=remotejdk_21
+# The Android app builds its deps for the arm64-v8a platform of the root BUILD file (the ABI of the
+# devices the app ships to, like the old migration).
+build --android_platforms=@@//:arm64-v8a
+
+# `bazel build //...` skips the targets the host configuration cannot build (the iOS app of
+# //app/iosApp and the frameworks of app/shared, which build in the iOS platform of --ios_multi_cpus
+# only, see app/iosApp/BUILD.bazel) instead of failing when they are named explicitly.
+build --skip_incompatible_explicit_targets
+
+# ios_application builds its deps for the iOS simulator of an arm64 Mac, which needs no signing; the
+# konan target --ios_multi_cpus selects is ios_simulator_arm64. --ios_multi_cpus=arm64 builds for a
+# device (ios_arm64), which needs the provisioning profile (see app/iosApp/BUILD.bazel).
+build --ios_multi_cpus=sim_arm64
+
+# iOS needs Xcode: a Linux host builds the Android app, the desktop app, the backend and the tests.
+common --enable_platform_specific_config
+common:linux --deleted_packages=app/iosApp
+
+# The classpath filter is disabled: its default-on stripping breaks Metro's cross-module binding
+# discovery on multi-platform fragment compilations. The filter removes top-level declarations the
+# consumer's sources never name, and Metro's generated contribution-hint *functions* in dependency
+# ABI jars are exactly such declarations, so the app's graph cannot see the bindings contributed
+# by //app/shared (MissingBinding for @BaseUrl String, TimeProvider, NotificationPlatformConfiguration,
+# MetroViewModelFactory, ApplicationStorage). "verify" mode does not help (the stripping still
+# happens, only logged). The jvm legs (desktop/backend) were green with the filter on; OFF is kept
+# globally as the conservative mode that builds every leg.
+# See notes/experiment_log.md blocker row 15 (rules_kmp limitation; consumer workaround).
+build --@rules_kmp//config:kotlin_classpath_filter=off
+
+test --test_output=errors
+try-import %workspace%/.bazelrc.user

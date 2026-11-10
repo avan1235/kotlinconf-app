@@ -1,0 +1,88 @@
+load("@rules_kmp//kotlin:defs.bzl", "kmp_compiler_plugin")
+load("//bazel:pod_link.bzl", "pod_link")
+
+# The platform of the Android app: android_binary builds its deps for it (see .bazelrc), the twin
+# of the platform of the old migration. It is named after the ABI of the CPU, as rules_android
+# expects: the name of the platform is the directory of the native libraries in the APKs of
+# mobile-install (lib/<name>/, which the device matches against its ABIs).
+platform(
+    name = "arm64-v8a",
+    constraint_values = [
+        "@platforms//cpu:arm64",
+        "@platforms//os:android",
+    ],
+)
+
+# The version and the repository-wide conventions of the modules, loaded by their BUILD files.
+exports_files([
+    "conventions.bzl",
+    "version.bzl",
+])
+
+# The link_<pod>_<platform> targets the @maven hub requires for the pods kmpnotifier's iOS klibs
+# link (the link_pods mapping of maven_lock.json): the Firebase Messaging of the Swift Package
+# Manager build of app/iosApp, whose archives the rule links for the test executables of the
+# Kotlin/Native targets (bazel/pod_link.bzl).
+[
+    pod_link(
+        name = "link_FirebaseMessaging_" + platform,
+        target = platform,
+        framework = "FirebaseMessaging",
+        deps = ["@swiftpkg_firebase_ios_sdk//:FirebaseMessaging"],
+        # The ios_application of app/iosApp passes the same two flags: -ObjC keeps the
+        # Objective-C categories of the Firebase archives, -lsqlite3 the SQLite the
+        # SwiftPM build of Firebase Messaging links by autolinking only (app/iosApp:144-149).
+        linkopts = [
+            "-ObjC",
+            "-lsqlite3",
+        ],
+        visibility = ["@maven//:__subpackages__"],
+    )
+    for platform in [
+        "ios_arm64",
+        "ios_simulator_arm64",
+    ]
+]
+
+# The compiler plugins of the modules, the rules_kmp twins of the kt_compiler_plugin declarations of
+# the rules_kotlin build (the old migration, commit 97d4a16c): the JVM jars come from the compiler
+# distribution of the toolchain (@kotlin_compiler, a repo of the kotlin extension of MODULE.bazel),
+# the native ones are the embeddable builds the Kotlin/Native compiler loads, resolved in the tools
+# platform of the Maven lock.
+
+# org.jetbrains.kotlin.plugin.serialization: the plugin of the Kotlin release of the toolchain.
+kmp_compiler_plugin(
+    name = "serialization_plugin",
+    id = "org.jetbrains.kotlinx.serialization",
+    jvm_jars = ["@kotlin_compiler//:serialization_plugin"],
+    native_jars = ["@maven//tools:org_jetbrains_kotlin_kotlin_serialization_compiler_plugin_embeddable"],
+    visibility = ["//visibility:public"],
+)
+
+# org.jetbrains.kotlin.plugin.compose: the Compose compiler of the Kotlin release.
+kmp_compiler_plugin(
+    name = "compose_plugin",
+    id = "androidx.compose.compiler.plugins.kotlin",
+    jvm_jars = ["@kotlin_compiler//:compose_plugin"],
+    native_jars = ["@maven//tools:org_jetbrains_kotlin_kotlin_compose_compiler_plugin_embeddable"],
+    visibility = ["//visibility:public"],
+)
+
+# dev.zacsweers.metro: the dependency injection compiler plugin of //app/shared (the fallback of its
+# KSP wiring) and //app/desktopApp (kmp_jvm_module has no KSP wiring). The options are the defaults
+# the Metro Gradle plugin sends for Kotlin 2.4 where they differ from the plugin's own defaults
+# (MetroPluginExtension): the contributed ViewModels and storages of //app/shared have no @Inject
+# and rely on contributes-as-inject.
+kmp_compiler_plugin(
+    name = "metro_plugin",
+    id = "dev.zacsweers.metro.compiler",
+    jvm_jars = ["@maven//tools:dev_zacsweers_metro_compiler"],
+    native_jars = ["@maven//tools:dev_zacsweers_metro_compiler"],
+    options = [
+        "enabled=true",
+        "contributes-as-inject=true",
+        "enable-top-level-function-injection=true",
+        "generate-contribution-hints-in-fir=true",
+    ],
+    visibility = ["//visibility:public"],
+)

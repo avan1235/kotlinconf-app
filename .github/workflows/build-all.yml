@@ -9,93 +9,55 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# The Bazel build of everything: the desktop app, the backend and its tests, the Android APK and the
+# JVM tests on Linux and macOS, plus the iOS app and its ipa_test on macOS (.bazelrc leaves
+# app/iosApp out of a Linux build). Bazel fetches the Kotlin Multiplatform rules itself:
+# MODULE.bazel pins a commit of rules_kmp with git_override, which the repository cache keeps
+# between runs. The Android SDK comes from the ANDROID_HOME of the runner image (see MODULE.bazel).
 jobs:
-  build-jvm:
-    name: Build desktop
-    runs-on: ubuntu-latest
+  build:
+    name: Build and test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
     steps:
-      - name: Check out code
+      - name: Check out the app
         uses: actions/checkout@v4
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@0.15.0
         with:
-          distribution: 'zulu'
-          java-version: 21
-      - name: Assemble desktop jar
-        run: ./gradlew :app:desktopApp:jar
-      - name: Run JVM tests
-        run: ./gradlew jvmTest
-
-  build-jvm-release:
-    name: Build desktop release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: 21
-      - name: Build desktop release distributable
-        run: ./gradlew :app:desktopApp:createReleaseDistributable --stacktrace
-
-  build-android:
-    name: Build Android
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: 21
-      - name: Android debug build
-        run: ./gradlew :app:androidApp:assembleDebug --stacktrace
-
-  build-ios:
-    name: Build iOS
-    runs-on: macOS-latest
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: 21
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}-${{ matrix.os }}
+          repository-cache: true
       - name: Set Xcode version
+        if: runner.os == 'macOS'
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
-      - name: iOS debug build
-        run: cd app/iosApp && xcodebuild -scheme KotlinConfAppScheme -configuration Debug -sdk iphonesimulator -arch arm64 CODE_SIGNING_ALLOWED='NO'
-
-  build-web:
-    name: Build web
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
+      - name: Build everything
+        run: bazel build //...
+      - name: Run the tests
+        run: bazel test //...
+      - name: Build the backend deploy jar
+        if: runner.os == 'Linux'
+        run: bazel build //backend:backend_bin_deploy.jar
+      # The APK and the IPA are built in the configurations of their platforms, whose output
+      # directories are not the bazel-bin of the host: cquery prints their paths (the files of
+      # android_binary are the APK, the unsigned APK and the deploy jar; the ones of ios_application
+      # the IPA).
+      - name: Collect the artifacts
+        run: |
+          mkdir -p artifacts
+          cp "$(bazel cquery --output=files //app/androidApp | grep '/androidApp\.apk$')" artifacts/
+          if [ "$RUNNER_OS" = Linux ]; then
+            cp "$(bazel cquery --output=files //backend:backend_bin_deploy.jar)" artifacts/
+          else
+            cp "$(bazel cquery --output=files //app/iosApp:KotlinConf | grep '\.ipa$')" artifacts/
+          fi
+      - name: Upload the artifacts
+        uses: actions/upload-artifact@v4
         with:
-          distribution: 'zulu'
-          java-version: 21
-      - name: Build web app
-        run: ./gradlew :app:webApp:composeCompatibilityBrowserDistribution
-
-  build-backend:
-    name: Build backend
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: 21
-      - name: Build backend jar
-        run: ./gradlew :backend:jar
-      - name: Run backend tests
-        run: ./gradlew :backend:test
+          name: kotlinconf-${{ matrix.os }}
+          path: artifacts/

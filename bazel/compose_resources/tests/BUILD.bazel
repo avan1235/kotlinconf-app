@@ -1,0 +1,197 @@
+load("@rules_kmp//kotlin:defs.bzl", "kmp_jvm_library", "kmp_jvm_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//bazel:compose_resources.bzl", "compose_resources", "compose_resources_bundle")
+load("//:conventions.bzl", "CONVENTIONS")
+
+# The tests of //bazel:compose_resources.bzl and its generator, on the fixture of
+# testdata/composeResources: a drawable with a dark variant, one with a dash in its name, strings
+# (a `\n` escape, a keyword as a name, a German translation), a string array, plurals, a font and raw
+# files in nested directories. The test classes run on the BazelJUnitRunner of the conventions, like
+# the tests of the modules: the classes of each test library, then, are its test_jars, and the runner
+# jar (CONVENTIONS.jvm_test_runner, the repo of rules_kmp's toolchain) a dep of the test itself.
+
+MAVEN = "@maven//:"
+
+# The JVM variant of the Compose resources runtime the generated code is compiled and run against:
+# the base label of the @maven hub resolves the platform variant of the compilation (the -desktop
+# jar here, as in the app modules).
+RESOURCES_RUNTIME = MAVEN + "org_jetbrains_compose_components_components_resources"
+
+TEST_DEPS = [
+    MAVEN + name
+    for name in [
+        "org_jetbrains_kotlin_kotlin_test",
+        "org_jetbrains_kotlin_kotlin_test_junit5",
+        "org_jetbrains_kotlinx_kotlinx_coroutines_core_jvm",
+    ]
+]
+
+FIXTURE = glob(["testdata/composeResources/**"])
+
+# The generator on the fixture: the prepared files, the records of the .cvr files and their offsets,
+# the generated accessors and collectors of both modes, and the jar. The library under test is the
+# generator module itself, its jvm leg (//bazel/compose_resources:generator).
+kmp_jvm_library(
+    name = "generator_tests_lib",
+    testonly = True,
+    module_name = "org.jetbrains.kotlinconf.bazel.composeresources.tests:generator",
+    fragments = ["main"],
+    srcs = {"GeneratorTest.kt": "main"},
+    deps = ["//bazel/compose_resources:generator"] + TEST_DEPS,
+)
+
+kmp_jvm_test(
+    name = "generator_test",
+    size = "small",
+    timeout = "short",
+    test_jars = [":generator_tests_lib"],
+    deps = [
+        ":generator_tests_lib",
+        CONVENTIONS.jvm_test_runner,
+    ],
+    data = FIXTURE,
+)
+
+# The fixture as the resources of a multiplatform module, compiled for the JVM as the app modules
+# are: the generated common sources and the `actual` collectors as the platform sources (the
+# commonMain and jvmMain fragments of the jvm leg of a kmp_library), the resource tree packed into
+# the library's own -resources.jar.
+compose_resources(
+    name = "fixture",
+    testonly = True,
+    srcs = FIXTURE,
+    package = "org.example.fixture.generated.resources",
+    resources_dir = "testdata/composeResources",
+)
+
+kmp_jvm_library(
+    name = "fixture_lib",
+    testonly = True,
+    module_name = "org.example.fixture:lib",
+    fragments = ["commonMain", "jvmMain"],
+    refines = ["jvmMain:commonMain"],
+    srcs = {
+        ":fixture_common_srcs": "commonMain",
+        ":fixture_platform_srcs": "jvmMain",
+    },
+    deps = [RESOURCES_RUNTIME],
+    resource_jars = [":fixture_jar"],
+)
+
+# The fixture as the resources of a JVM-only module, as the desktop app's: plain collectors, a public
+# Res class with another name, Gradle's `main` source set.
+compose_resources(
+    name = "fixture_single",
+    testonly = True,
+    srcs = FIXTURE,
+    multiplatform = False,
+    package = "org.example.fixture.single",
+    public = True,
+    res_class = "SingleRes",
+    resources_dir = "testdata/composeResources",
+    source_set = "main",
+)
+
+kmp_jvm_library(
+    name = "fixture_single_lib",
+    testonly = True,
+    module_name = "org.example.fixture:single",
+    fragments = ["main"],
+    srcs = {":fixture_single_common_srcs": "main"},
+    deps = [RESOURCES_RUNTIME],
+    resource_jars = [":fixture_single_jar"],
+)
+
+# The Skiko native library of the host: the resources runtime reads the system theme through it
+# when it resolves a resource outside a composition.
+config_setting(
+    name = "macos_arm64",
+    constraint_values = [
+        "@platforms//cpu:arm64",
+        "@platforms//os:macos",
+    ],
+)
+
+config_setting(
+    name = "linux_x86_64",
+    constraint_values = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+)
+
+SKIKO_RUNTIME = select(
+    {
+        ":linux_x86_64": [MAVEN + "org_jetbrains_skiko_skiko_awt_runtime_linux_x64"],
+        ":macos_arm64": [MAVEN + "org_jetbrains_skiko_skiko_awt_runtime_macos_arm64"],
+    },
+    no_match_error = "the lookup test needs the Skiko runtime of the host: add its artifact to MODULE.bazel and a branch here",
+)
+
+# The resources of both fixtures resolve through the runtime library from the JVM packaging: the
+# strings of the locale, the drawable of the theme, the plurals and arrays, the raw files and the
+# collectors. The test library is a friend of the multiplatform fixture, whose Res class is
+# internal; the fixture itself is a runtime dep of the test, so its -resources.jar reaches the
+# classpath. The launcher of kmp_jvm_test runs the JVM headless already.
+kmp_jvm_library(
+    name = "lookup_tests_lib",
+    testonly = True,
+    module_name = "org.jetbrains.kotlinconf.bazel.composeresources.tests:lookup",
+    fragments = ["main"],
+    srcs = {"LookupTest.kt": "main"},
+    friends = [":fixture_lib"],
+    deps = [
+        ":fixture_single_lib",
+        RESOURCES_RUNTIME,
+    ] + TEST_DEPS,
+)
+
+kmp_jvm_test(
+    name = "lookup_test",
+    size = "small",
+    timeout = "short",
+    test_jars = [":lookup_tests_lib"],
+    deps = [
+        ":lookup_tests_lib",
+        ":fixture_lib",
+        CONVENTIONS.jvm_test_runner,
+    ],
+    runtime_deps = SKIKO_RUNTIME,
+    jvm_flags = [
+        # Skiko unpacks its native library into ~/.skiko by default, which the sandbox forbids;
+        # {outputs} becomes the undeclared outputs directory of the test.
+        "-Dskiko.data.path={outputs}/skiko",
+    ],
+)
+
+# The compose-resources directory of an iOS app bundle with the trees of both fixtures, as the one of
+# //app/iosApp holds the resources of app/shared and app/ui-components.
+compose_resources_bundle(
+    name = "bundle",
+    testonly = True,
+    deps = [
+        ":fixture",
+        ":fixture_single",
+    ],
+)
+
+sh_test(
+    name = "bundle_test",
+    size = "small",
+    timeout = "short",
+    srcs = ["bundle_test.sh"],
+    args = [
+        "$(rootpath :bundle)",
+        "$(rootpath testdata/composeResources/drawable/icon.xml)",
+    ],
+    data = [":bundle"] + FIXTURE,
+)
+
+test_suite(
+    name = "tests",
+    tests = [
+        ":bundle_test",
+        ":generator_test",
+        ":lookup_test",
+    ],
+)

@@ -1,0 +1,33 @@
+load("@rules_kmp//kotlin:defs.bzl", "android_options", "kmp_library")
+load("//:conventions.bzl", "CONVENTIONS")
+
+# The core module of the app: the data model shared by the backend and the apps. Common code only;
+# the commonMain `api` dependencies of the Gradle build are the exports: every platform compiles
+# against them, and the consumers of //core see them too. The alias //core:core selects the variant
+# of its consumer (//core:core_jvm on the JVM, //core:core_android under an Android platform, the
+# klib of the target on the iOS platforms).
+
+CORE_EXPORTS = [
+    "@maven//:org_jetbrains_kotlinx_kotlinx_datetime",
+    "@maven//:org_jetbrains_kotlinx_kotlinx_serialization_core",
+    "@maven//:org_jetbrains_kotlinx_kotlinx_serialization_json",
+]
+
+kmp_library(
+    name = "core",
+    module_name = "org.jetbrains.kotlinconf:core",
+    targets = [
+        "jvm",
+        "android",
+        "ios_arm64",
+        "ios_simulator_arm64",
+    ],
+    conventions = CONVENTIONS,
+    plugins = ["//:serialization_plugin"],
+    exports = {"commonMain": CORE_EXPORTS},
+    android = android_options(
+        namespace = "com.jetbrains.kotlinconf.core",
+        manifest = "src/androidMain/AndroidManifest.xml",
+    ),
+    visibility = ["//visibility:public"],
+)
