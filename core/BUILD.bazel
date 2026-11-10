@@ -1,0 +1,47 @@
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
+
+# The commonMain `api` dependencies: every platform compiles the common code against them, and the
+# consumers of //core see them too (exports).
+CORE_API_DEPS = [
+    "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_datetime",
+    "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_serialization_core",
+    "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_serialization_json",
+]
+
+# The kotlinx.serialization plugin of every platform compilation (the @Serializable model classes).
+CORE_PLUGINS = ["//:serialization_plugin"]
+
+# The core module: the data model shared by the backend and the apps. Common code only, compiled for
+# the JVM (//core:core_jvm, the backend and the desktop app), Android (//core:core_android) and the
+# iOS targets (//core:core_native); the alias //core selects the variant of its consumer.
+#
+# The Android library is only built for an Android platform (android_binary transitions to
+# //:arm64-v8a), where the @kmp_maven aliases select the Android variants of the libraries; a
+# build of the package for another platform skips it, as it skips the iOS targets.
+kt_multiplatform_library(
+    name = "core",
+    android = dict(
+        custom_package = "com.jetbrains.kotlinconf.core",
+        manifest = "src/androidMain/AndroidManifest.xml",
+        plugins = CORE_PLUGINS,
+        target_compatible_with = ["@platforms//os:android"],
+        exports = CORE_API_DEPS,
+    ),
+    common_deps = CORE_API_DEPS,
+    common_srcs = glob(["src/commonMain/kotlin/**/*.kt"]),
+    jvm = dict(
+        plugins = CORE_PLUGINS,
+        exports = CORE_API_DEPS,
+    ),
+    native = {
+        "ios": dict(
+            plugins = CORE_PLUGINS,
+            targets = [
+                "ios_arm64",
+                "ios_simulator_arm64",
+            ],
+            exports = CORE_API_DEPS,
+        ),
+    },
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,17 @@
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_binary", "kt_jvm_library")
+
+# The generator of the Compose Multiplatform resources (see //bazel:compose_resources.bzl): a port of
+# the resource tasks of the Compose Gradle plugin (org.jetbrains.compose.resources), with the same
+# output: the .cvr files, the accessors and their content hashes, and the collectors.
+kt_jvm_library(
+    name = "generator_lib",
+    srcs = glob(["src/**/*.kt"]),
+    visibility = ["//bazel/compose_resources:__subpackages__"],
+)
+
+kt_jvm_binary(
+    name = "generator",
+    main_class = "org.jetbrains.kotlinconf.bazel.composeresources.MainKt",
+    visibility = ["//visibility:public"],
+    runtime_deps = [":generator_lib"],
+)

@@ -1,0 +1,17 @@
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_binary", "kt_jvm_library")
+
+# The generator of the Firebase string resources of an Android app (see //bazel:google_services.bzl):
+# the values.xml the Google Services Gradle plugin derives from google-services.json.
+kt_jvm_library(
+    name = "generator_lib",
+    srcs = glob(["src/**/*.kt"]),
+    visibility = ["//bazel/google_services:__subpackages__"],
+    deps = ["@kmp_maven//:org_jetbrains_kotlinx_kotlinx_serialization_json"],
+)
+
+kt_jvm_binary(
+    name = "generator",
+    main_class = "org.jetbrains.kotlinconf.bazel.googleservices.MainKt",
+    visibility = ["//visibility:public"],
+    runtime_deps = [":generator_lib"],
+)

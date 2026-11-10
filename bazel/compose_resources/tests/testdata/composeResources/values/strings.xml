@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<resources>
+    <string name="app_name">Fixture</string>
+    <string name="greeting">Hello,\nworld &amp; friends</string>
+    <string name="object">a keyword as a name</string>
+    <string-array name="days">
+        <item>Mon</item>
+        <item>Tue</item>
+    </string-array>
+    <plurals name="items">
+        <item quantity="one">%1$d item</item>
+        <item quantity="other">%1$d items</item>
+    </plurals>
+</resources>

@@ -35,7 +35,7 @@ conference:
 ### 3. Verify
 
 ```bash
-./gradlew :backend:run
+bazel run //backend -- -port=8080
 ```
 
 - http://0.0.0.0:8080/{YEAR}/conference should return the archived data

@@ -1,0 +1,228 @@
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_test")
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library", "kt_source_set")
+load("//:version.bzl", "VERSION_CODE", "VERSION_NAME")
+load("//bazel:compose_resources.bzl", "compose_resources")
+
+# The shared module of the apps: the screens, the services, the storage and the Metro dependency
+# graph, a Kotlin Multiplatform library for the JVM, Android and the iOS targets, with the Compose,
+# kotlinx.serialization and Metro compiler plugins.
+
+KMP = "@kmp_maven//:"
+
+# The commonMain `api` dependencies: the consumers of the module (the apps) see them too (exports).
+SHARED_API_DEPS = [
+    "//core",
+    "//app/ui-components:ui_components",
+] + [
+    KMP + name
+    for name in [
+        "org_jetbrains_compose_runtime_runtime",
+        "org_jetbrains_compose_foundation_foundation",
+        "org_jetbrains_compose_animation_animation",
+        "org_jetbrains_compose_components_components_resources",
+        "io_ktor_ktor_client_logging",
+        "io_ktor_ktor_serialization_kotlinx_json",
+        "io_ktor_ktor_client_content_negotiation",
+        "io_ktor_ktor_utils",
+        "io_github_mirzemehdi_kmpnotifier",
+    ]
+]
+
+# The commonMain `implementation` dependencies (with the Metro runtime of the Metro compiler plugin).
+SHARED_DEPS = [
+    KMP + name
+    for name in [
+        "org_jetbrains_compose_ui_ui_tooling_preview",
+        "dev_zacsweers_metro_runtime",
+        "dev_zacsweers_metro_metrox_viewmodel_compose",
+        "org_jetbrains_kotlinx_kotlinx_datetime",
+        "org_jetbrains_androidx_lifecycle_lifecycle_runtime_compose",
+        "org_jetbrains_androidx_navigation3_navigation3_ui",
+        "org_jetbrains_androidx_lifecycle_lifecycle_viewmodel_navigation3",
+        "io_ktor_ktor_client_core",
+        "com_mikepenz_aboutlibraries_core",
+        "io_coil_kt_coil3_coil_compose",
+        "com_russhwolf_multiplatform_settings",
+        "com_russhwolf_multiplatform_settings_serialization",
+        "com_russhwolf_multiplatform_settings_make_observable",
+        "com_russhwolf_multiplatform_settings_coroutines",
+        "com_doist_x_normalize",
+        "com_squareup_okio_okio",
+    ]
+]
+
+# The dependencies of the platform source sets.
+ANDROID_DEPS = [
+    KMP + name
+    for name in [
+        "com_caverock_androidsvg_aar",
+        "androidx_preference_preference_ktx",
+        "io_ktor_ktor_client_okhttp",
+        "dev_zacsweers_metro_metrox_android",
+    ]
+]
+
+IOS_DEPS = [
+    KMP + name
+    for name in [
+        "org_jetbrains_kotlinx_kotlinx_coroutines_core",
+        "io_ktor_ktor_client_darwin",
+    ]
+]
+
+JVM_DEPS = [
+    KMP + name
+    for name in [
+        "io_ktor_ktor_client_okhttp",
+        "org_slf4j_slf4j_nop",
+    ]
+]
+
+# The compiler plugins of every platform compilation. Metro goes first: the Metro Gradle plugin
+# orders it before the Compose compiler (-Xcompiler-plugin-order).
+SHARED_PLUGINS = [
+    "//:metro_plugin",
+    "//:compose_plugin",
+    "//:serialization_plugin",
+]
+
+# The `app_version` string of the About screen, "<version> (<build>)", from //:version.bzl: a
+# generated resource file of the composeResources directory.
+write_file(
+    name = "version_xml",
+    out = "src/commonMain/composeResources/values/version.xml",
+    content = [
+        "<resources>",
+        '    <string name="app_version">%s (%s)</string>' % (VERSION_NAME, VERSION_CODE),
+        "</resources>",
+        "",
+    ],
+)
+
+# The Compose resources of the shared module, an internal `Res` class: the strings (values,
+# values-de), drawables (drawable, drawable-dark), fonts and the raw files (files/aboutlibraries.json,
+# the export of the AboutLibraries Gradle plugin, committed; refresh it by hand when the dependencies
+# change).
+compose_resources(
+    name = "shared_resources",
+    srcs = glob(["src/commonMain/composeResources/**"]) + [":version_xml"],
+    package = "org.jetbrains.kotlinconf.generated.resources",
+    resources_dir = "src/commonMain/composeResources",
+    visibility = ["//app:__subpackages__"],
+)
+
+# The intermediate source sets of the Gradle build, which the platform libraries compile with their
+# own sources (source_sets of the JVM and Android libraries, depends_on of the iOS group):
+# src/nonAndroidMain, the SVG decoder of the Skia platforms, and src/nonWebMain, the file storage
+# and the browser integration of every platform but the web one, which this build does not have.
+kt_source_set(
+    name = "shared_non_android",
+    srcs = glob(["src/nonAndroidMain/kotlin/**/*.kt"]),
+    depends_on = [":shared_common"],
+)
+
+kt_source_set(
+    name = "shared_non_web",
+    srcs = glob(["src/nonWebMain/kotlin/**/*.kt"]),
+    depends_on = [":shared_common"],
+)
+
+# The generated sources of the resources join the common source set (the Res class and its
+# accessors) and each platform compilation (the `actual` collectors); the resource tree goes on the
+# JVM classpath as a jar and into the Android assets, where the resources runtime reads it. The alias
+# //app/shared selects the variant of its consumer.
+#
+# The Android library is only built for an Android platform (android_binary transitions to
+# //:arm64-v8a), where the @kmp_maven aliases select the Android variants of the libraries: its
+# own deps (androidsvg, preference-ktx, metrox-android) have no other variant, and Compose has to be
+# the Android one, so a build of the package for another platform skips it, as it skips the iOS targets.
+# Its manifest (the alarm receiver of the local notifications and its permissions) is merged into the
+# one of //app/androidApp with the manifests of the other libraries.
+kt_multiplatform_library(
+    name = "shared",
+    android = dict(
+        srcs = glob(["src/androidMain/kotlin/**/*.kt"]) + [":shared_resources_platform_srcs"],
+        assets = [":shared_resources_files"],
+        assets_dir = "shared_resources/resources",
+        custom_package = "org.jetbrains.kotlinconf",
+        exports_manifest = 1,
+        manifest = "src/androidMain/AndroidManifest.xml",
+        plugins = SHARED_PLUGINS,
+        source_sets = [":shared_non_web"],
+        target_compatible_with = ["@platforms//os:android"],
+        exports = SHARED_API_DEPS,
+        deps = ANDROID_DEPS,
+    ),
+    common_deps = SHARED_API_DEPS + SHARED_DEPS,
+    common_srcs = glob(["src/commonMain/kotlin/**/*.kt"]) + [":shared_resources_common_srcs"],
+    jvm = dict(
+        srcs = glob(["src/jvmMain/kotlin/**/*.kt"]) + [":shared_resources_platform_srcs"],
+        plugins = SHARED_PLUGINS,
+        resource_jars = [":shared_resources_jar"],
+        source_sets = [
+            ":shared_non_android",
+            ":shared_non_web",
+        ],
+        exports = SHARED_API_DEPS,
+        deps = JVM_DEPS,
+    ),
+    native = {
+        "ios": dict(
+            srcs = glob(["src/iosMain/kotlin/**/*.kt"]) + [":shared_resources_platform_srcs"],
+            depends_on = [
+                ":shared_non_android",
+                ":shared_non_web",
+            ],
+            plugins = SHARED_PLUGINS,
+            targets = [
+                "ios_arm64",
+                "ios_simulator_arm64",
+            ],
+            exports = SHARED_API_DEPS,
+            deps = IOS_DEPS,
+        ),
+    },
+    visibility = ["//visibility:public"],
+)
+
+# The JVM tests: the classes of src/commonTest and src/jvmTest, one kt_jvm_test per class, on
+# kotlin.test over the JUnit 4 of the Bazel test runner. Each test is an associate of the JVM
+# library, so it sees its `internal` declarations.
+TEST_DEPS = SHARED_API_DEPS + SHARED_DEPS + [
+    KMP + name
+    for name in [
+        "com_russhwolf_multiplatform_settings_test",
+        "org_jetbrains_kotlinx_kotlinx_coroutines_test",
+    ]
+] + [
+    "@maven_kotlinconf//:" + name
+    for name in [
+        "junit_junit",
+        "org_jetbrains_kotlin_kotlin_test",
+        "org_jetbrains_kotlin_kotlin_test_junit",
+    ]
+]
+
+TEST_CLASSES = {
+    "ApplicationStorageImplMigrationTest": "src/commonTest/kotlin/org/jetbrains/kotlinconf/storage/ApplicationStorageImplMigrationTest.kt",
+    "OkioAssetStorageTest": "src/jvmTest/kotlin/org/jetbrains/kotlinconf/storage/OkioAssetStorageTest.kt",
+}
+
+[
+    kt_jvm_test(
+        name = test_class,
+        size = "small",
+        timeout = "short",
+        srcs = [src],
+        associates = [":shared_jvm"],
+        test_class = "org.jetbrains.kotlinconf.storage." + test_class,
+        deps = TEST_DEPS,
+    )
+    for test_class, src in TEST_CLASSES.items()
+]
+
+test_suite(
+    name = "tests",
+    tests = [":" + test_class for test_class in TEST_CLASSES],
+)
