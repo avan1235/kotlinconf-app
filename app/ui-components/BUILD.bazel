@@ -1,0 +1,108 @@
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library", "kt_source_set")
+load("//bazel:compose_resources.bzl", "compose_resources")
+
+# The UI components of the apps: the theme, the Compose components and the UiRes resources, a Kotlin
+# Multiplatform library for the JVM, Android and the iOS targets.
+
+KMP = "@kmp_maven//:"
+
+# The commonMain `api` dependencies: the consumers of the components see them too (exports).
+UI_COMPONENTS_API_DEPS = [
+    KMP + name
+    for name in [
+        "org_jetbrains_compose_runtime_runtime",
+        "org_jetbrains_compose_foundation_foundation",
+        "org_jetbrains_compose_animation_animation",
+        "org_jetbrains_compose_components_components_resources",
+    ]
+]
+
+# The commonMain `implementation` dependencies.
+UI_COMPONENTS_DEPS = [
+    KMP + name
+    for name in [
+        "org_jetbrains_compose_material_material_ripple",
+        "org_jetbrains_compose_ui_ui_tooling_preview",
+        "io_coil_kt_coil3_coil_compose",
+        "io_coil_kt_coil3_coil_network_ktor3",
+        "io_coil_kt_coil3_coil_svg",
+        "org_jetbrains_androidx_lifecycle_lifecycle_runtime_compose",
+        "org_jetbrains_androidx_lifecycle_lifecycle_viewmodel_compose",
+        "com_mikepenz_multiplatform_markdown_renderer",
+    ]
+]
+
+# The Ktor engine of Coil's network loader: OkHttp on the JVM and Android, Darwin on iOS.
+KTOR_OKHTTP = KMP + "io_ktor_ktor_client_okhttp"
+
+KTOR_DARWIN = KMP + "io_ktor_ktor_client_darwin"
+
+# The Compose compiler of every platform compilation.
+UI_COMPONENTS_PLUGINS = ["//:compose_plugin"]
+
+# The Compose resources of the UI components: a public `UiRes` class, so //app/shared and the apps
+# use the icons, strings and fonts of the components.
+compose_resources(
+    name = "ui_components_resources",
+    srcs = glob(["src/commonMain/composeResources/**"]),
+    package = "org.jetbrains.kotlinconf.ui.generated.resources",
+    public = True,
+    res_class = "UiRes",
+    resources_dir = "src/commonMain/composeResources",
+    visibility = ["//app:__subpackages__"],
+)
+
+# src/nonAndroidMain: the `actual` theme switch of the platforms without a Configuration, which the
+# JVM library (source_sets) and the iOS group (depends_on) compile with their own sources.
+kt_source_set(
+    name = "ui_components_non_android",
+    srcs = glob(["src/nonAndroidMain/kotlin/**/*.kt"]),
+    depends_on = [":ui_components_common"],
+)
+
+# The generated sources of the resources join the common source set (the UiRes class and its
+# accessors) and each platform compilation (the `actual` collectors); the resource tree goes on the
+# JVM classpath as a jar and into the Android assets, where the resources runtime reads it. The alias
+# //app/ui-components selects the variant of its consumer.
+#
+# The Android library is only built for an Android platform (android_binary transitions to
+# //:arm64-v8a), where the @kmp_maven aliases select the Android variants of Compose and Coil;
+# built for another platform it would get the desktop ones, so a build of the package skips it.
+kt_multiplatform_library(
+    name = "ui_components",
+    android = dict(
+        srcs = glob(["src/androidMain/kotlin/**/*.kt"]) + [":ui_components_resources_platform_srcs"],
+        assets = [":ui_components_resources_files"],
+        assets_dir = "ui_components_resources/resources",
+        custom_package = "com.jetbrains.kotlinconf.ui",
+        manifest = "src/androidMain/AndroidManifest.xml",
+        plugins = UI_COMPONENTS_PLUGINS,
+        target_compatible_with = ["@platforms//os:android"],
+        exports = UI_COMPONENTS_API_DEPS,
+        deps = [KTOR_OKHTTP],
+    ),
+    common_deps = UI_COMPONENTS_API_DEPS + UI_COMPONENTS_DEPS,
+    common_srcs = glob(["src/commonMain/kotlin/**/*.kt"]) + [":ui_components_resources_common_srcs"],
+    jvm = dict(
+        srcs = [":ui_components_resources_platform_srcs"],
+        plugins = UI_COMPONENTS_PLUGINS,
+        resource_jars = [":ui_components_resources_jar"],
+        source_sets = [":ui_components_non_android"],
+        exports = UI_COMPONENTS_API_DEPS,
+        deps = [KTOR_OKHTTP],
+    ),
+    native = {
+        "ios": dict(
+            srcs = [":ui_components_resources_platform_srcs"],
+            depends_on = [":ui_components_non_android"],
+            plugins = UI_COMPONENTS_PLUGINS,
+            targets = [
+                "ios_arm64",
+                "ios_simulator_arm64",
+            ],
+            exports = UI_COMPONENTS_API_DEPS,
+            deps = [KTOR_DARWIN],
+        ),
+    },
+    visibility = ["//visibility:public"],
+)

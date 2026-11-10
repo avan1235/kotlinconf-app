@@ -1,0 +1,326 @@
+"""The Bazel build of the KotlinConf app, with the Kotlin Multiplatform rules of rules_kotlin.
+
+The modules are //core, //backend, //app/shared, //app/ui-components and the apps: //app/desktopApp,
+//app/androidApp (rules_android) and //app/iosApp (rules_apple, with the Kotlin/Native framework of
+app/shared and the Firebase SDK built from its Swift package). See docs/bazel.md.
+"""
+
+module(name = "kotlinconf_app")
+
+# rules_kotlin with the Kotlin Multiplatform rules: a commit of the kmp branch of
+# github.com/JetBrains/rules_kotlin, fetched as its GitHub archive and checked against the integrity
+# (the README recipe of rules_kotlin, "From HEAD (Bzlmod)"). To move to another commit, follow
+# "Updating rules_kotlin" in docs/bazel.md. To build against a local checkout of the kmp branch in
+# ../rules_kotlin instead, pass --config=local_rules_kotlin (.bazelrc).
+bazel_dep(name = "rules_kotlin", version = "2.2.0")
+archive_override(
+    module_name = "rules_kotlin",
+    urls = ["https://github.com/JetBrains/rules_kotlin/archive/ad19038d26f34099f53284ca7c5bd56398130182.tar.gz"],
+    strip_prefix = "rules_kotlin-ad19038d26f34099f53284ca7c5bd56398130182",
+    integrity = "sha256-k2NQDIvPW/mfxRIN/IEb6fu0cy28Bado5wNvlaGl6z8=",
+)
+
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "rules_android", version = "0.8.0")
+bazel_dep(name = "rules_java", version = "9.3.0")
+bazel_dep(name = "rules_jvm_external", version = "7.1")
+bazel_dep(name = "rules_shell", version = "0.6.1")
+
+# The iOS app (app/iosApp/BUILD.bazel): rules_apple bundles and signs it, rules_swift compiles its
+# Swift sources, and rules_swift_package_manager builds the Firebase SDK from the Swift package of
+# app/iosApp/Package.swift, pinned by app/iosApp/Package.resolved (the SwiftPM lock file; re-resolve
+# it with `bazel run @swift_package//:resolve` after changing Package.swift). rules_xcodeproj
+# generates an Xcode project from the Bazel targets (`bazel run //app/iosApp:xcodeproj`).
+bazel_dep(name = "rules_apple", version = "5.4.0")
+bazel_dep(name = "rules_swift", version = "4.2.2")
+bazel_dep(name = "rules_swift_package_manager", version = "1.25.0")
+
+bazel_dep(name = "rules_xcodeproj", version = "4.1.0", dev_dependency = True)
+
+swift_deps = use_extension("@rules_swift_package_manager//:extensions.bzl", "swift_deps")
+swift_deps.from_package(
+    resolved = "//app/iosApp:Package.resolved",
+    swift = "//app/iosApp:Package.swift",
+)
+use_repo(swift_deps, "swift_package", "swiftpkg_firebase_ios_sdk")
+
+# The Go SDK the build tools written in Go are compiled with: the Android tools of rules_android and
+# the repository tools of gazelle, which fetch their Go dependencies. The SDK the root module
+# declares comes first; without one, rules_go takes the one of rules_android (Go 1.22), too old for
+# the gazelle release rules_swift_package_manager brings in (its tools need Go 1.24.12 or later).
+# The version is the one rules_swift_package_manager declares.
+bazel_dep(name = "rules_go", version = "0.60.0")
+
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+go_sdk.download(version = "1.27.0")
+
+# The Kotlin compiler is the release rules_kotlin pins (Kotlin 2.4.21, the one of the app): the
+# Compose compiler plugin and the stdlib below, and the Kotlin/Native distribution, are the ones of
+# that release. It is the only release the rules support for Kotlin/Native (they pin the LLVM and
+# the link dependencies of the framework per release, and `kotlin_native.version` of another release
+# fails fast against that table), so another Kotlin release is a change of rules_kotlin first, then
+# of this constant.
+KOTLIN = "2.4.21"
+
+# The Kotlin toolchain of the modules: JVM 11 bytecode (see BUILD.bazel), before the default one.
+register_toolchains("//:kotlin_toolchain")
+
+# The Android SDK and NDK of the Android libraries and of //app/androidApp: the compileSdk of the
+# app (37, "37.0" in the catalog of hermetic_android_toolchains) with its build-tools release, the
+# android.jar the Kotlin compiles and aapt2 see; the licenses are accepted in .bazelrc
+# (ACCEPTED_ANDROID_SDK_LICENSE_VERSION must equal the version).
+# The NDK is only there because android_binary needs a C++ toolchain for its Android split; the app
+# has no native code.
+bazel_dep(name = "hermetic_android_toolchains", version = "0.5.0", dev_dependency = True)
+bazel_dep(name = "rules_android_ndk", version = "0.1.5", dev_dependency = True)
+
+android = use_extension("@hermetic_android_toolchains//:extensions.bzl", "android", dev_dependency = True)
+android.sdk(
+    build_tools_version = "37.0.0",
+    version = "37.0",
+)
+android.ndk(version = "r29")
+use_repo(android, "androidndk", "androidsdk")
+
+android_sdk_repository_extension = use_extension(
+    "@rules_android//rules/android_sdk_repository:rule.bzl",
+    "android_sdk_repository_extension",
+    dev_dependency = True,
+)
+
+override_repo(android_sdk_repository_extension, "androidsdk")
+
+android_ndk_repository_extension = use_extension(
+    "@rules_android_ndk//:extension.bzl",
+    "android_ndk_repository_extension",
+    dev_dependency = True,
+)
+
+override_repo(android_ndk_repository_extension, "androidndk")
+
+register_toolchains(
+    "@androidndk//:all",
+    "@androidsdk//:all",
+    dev_dependency = True,
+)
+
+# Kotlin/Native, for the iOS targets of the multiplatform libraries and the framework of
+# //app/iosApp: the distribution of the Kotlin release rules_kotlin pins, with the link dependencies
+# of the iOS targets (the LLVM and libffi of the release, pinned by rules_kotlin too), only fetched
+# when a native target is built.
+kotlin_native = use_extension("@rules_kotlin//src/main/starlark/core/repositories:native.bzl", "kotlin_native")
+kotlin_native.targets(targets = [
+    "ios_arm64",
+    "ios_simulator_arm64",
+])
+
+# The JVM-only libraries: the compiler plugins the Kotlin rules run (the Compose compiler of the
+# Kotlin release and the Metro compiler), the backend server stack (//backend), the JVM variants of
+# the Compose libraries the desktop app and the tests of //bazel/compose_resources run with, and the
+# desktop runtime (desktop-jvm and coroutines-swing). Pin with `REPIN=1 bazel run
+# @maven_kotlinconf//:pin` after changing the artifacts.
+KTOR = "3.6.0"
+
+KOIN = "4.2.2"
+
+EXPOSED = "1.0.0"
+
+# Compose Multiplatform.
+COMPOSE = "1.12.1"
+
+# Skiko, the Skia bindings of Compose for Desktop: the version the ui-graphics-desktop POM of the
+# Compose release depends on. The JVM jars depend on skiko-awt; the native library of the host is
+# in skiko-awt-runtime-<os>-<arch> (what the Compose Gradle plugin adds with
+# `compose.desktop.currentOs`).
+SKIKO = "0.150.1"
+
+# The other versions the multiplatform modules share.
+COIL = "3.6.3"
+
+LIFECYCLE = "2.11.0"
+
+METRO = "1.4.0"
+
+SETTINGS = "1.3.0"
+
+COROUTINES = "1.11.0"
+
+SERIALIZATION = "1.11.0"
+
+maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
+maven.install(
+    name = "maven_kotlinconf",
+    artifacts = [
+        "dev.zacsweers.metro:compiler:" + METRO,
+        "org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:" + KOTLIN,
+        # backend: the Ktor server and its plugins. The Kotlin Multiplatform libraries are listed by their
+        # -jvm artifact: the POM of the root one has no dependencies (they are in its Gradle metadata).
+        "io.ktor:ktor-server-netty-jvm:" + KTOR,
+        "io.ktor:ktor-server-auth-jvm:" + KTOR,
+        "io.ktor:ktor-serialization-kotlinx-json-jvm:" + KTOR,
+        "io.ktor:ktor-client-cio-jvm:" + KTOR,
+        "io.ktor:ktor-client-content-negotiation-jvm:" + KTOR,
+        "io.ktor:ktor-server-status-pages-jvm:" + KTOR,
+        "io.ktor:ktor-server-default-headers-jvm:" + KTOR,
+        "io.ktor:ktor-server-cors-jvm:" + KTOR,
+        "io.ktor:ktor-server-content-negotiation-jvm:" + KTOR,
+        "io.ktor:ktor-server-call-logging-jvm:" + KTOR,
+        "io.ktor:ktor-server-conditional-headers-jvm:" + KTOR,
+        "io.ktor:ktor-server-compression-jvm:" + KTOR,
+        "io.ktor:ktor-server-partial-content-jvm:" + KTOR,
+        "io.ktor:ktor-server-auto-head-response-jvm:" + KTOR,
+        "io.ktor:ktor-server-forwarded-header-jvm:" + KTOR,
+        "io.ktor:ktor-server-config-yaml-jvm:" + KTOR,
+        "io.ktor:ktor-server-swagger-jvm:" + KTOR,
+        # backend: persistence, DI and logging
+        "org.jetbrains.exposed:exposed-core:" + EXPOSED,
+        "org.jetbrains.exposed:exposed-dao:" + EXPOSED,
+        "org.jetbrains.exposed:exposed-jdbc:" + EXPOSED,
+        "com.h2database:h2:2.3.232",
+        "org.postgresql:postgresql:42.7.8",
+        "io.insert-koin:koin-ktor-jvm:" + KOIN,
+        "io.insert-koin:koin-core-jvm:" + KOIN,
+        "io.insert-koin:koin-logger-slf4j:" + KOIN,
+        "com.zaxxer:HikariCP:7.0.2",
+        "ch.qos.logback:logback-classic:1.5.24",
+        # backend tests: kotlin.test on JUnit 4 (the runner of kt_jvm_test)
+        "io.ktor:ktor-server-test-host-jvm:" + KTOR,
+        "org.jetbrains.kotlin:kotlin-test:" + KOTLIN,
+        "org.jetbrains.kotlin:kotlin-test-junit:" + KOTLIN,
+        "org.jetbrains.kotlinx:kotlinx-coroutines-test-jvm:" + COROUTINES,
+        "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:" + COROUTINES,
+        "junit:junit:4.13.2",
+        # Compose resources: the JVM (desktop) variant of the runtime of the generated Res classes
+        # (//bazel:compose_resources.bzl) with the Compose runtime, foundation and UI it depends on, for
+        # the desktop app and the tests of the generator. The multiplatform modules get the
+        # multiplatform artifact from kmp_maven instead.
+        "org.jetbrains.compose.components:components-resources-desktop:" + COMPOSE,
+        # The Compose desktop runtime and swing coroutines dispatcher for //app/desktopApp.
+        "org.jetbrains.compose.desktop:desktop-jvm:" + COMPOSE,
+        "org.jetbrains.kotlinx:kotlinx-coroutines-swing:" + COROUTINES,
+        # The Skiko native library of the hosts that run the desktop code (the resources runtime reads
+        # the system theme through it); //bazel/compose_resources/tests selects the one of the host.
+        "org.jetbrains.skiko:skiko-awt-runtime-macos-arm64:" + SKIKO,
+        "org.jetbrains.skiko:skiko-awt-runtime-linux-x64:" + SKIKO,
+    ],
+    lock_file = "//:maven_install.json",
+    repositories = [
+        "https://repo1.maven.org/maven2",
+        "https://dl.google.com/dl/android/maven2",
+    ],
+)
+use_repo(maven, "maven_kotlinconf")
+
+# rules_android resolves its build tools (d8, bundletool, desugar, ...) with an unpinned coursier
+# resolution of its own install, rules_android_maven, from maven.google.com and Maven Central,
+# which rate-limits the download of the largest artifact (HTTP 429 for
+# org.robolectric:nativeruntime-dist-compat). rules_jvm_external merges the repositories of an
+# install several modules declare, the root module's first, so Google's mirror of Maven Central
+# comes first. The other attributes repeat the ones of rules_android, which a root declaration
+# would otherwise reset.
+maven.install(
+    name = "rules_android_maven",
+    aar_import_bzl_label = "@rules_android//rules:rules.bzl",
+    known_contributing_modules = ["rules_android"],
+    repositories = [
+        "https://maven-central.storage-download.googleapis.com/maven2",
+        "https://maven.google.com",
+        "https://repo1.maven.org/maven2",
+    ],
+    use_starlark_android_rules = True,
+)
+
+# The Maven dependencies of the multiplatform code, the Kotlin Multiplatform libraries:
+# @kmp_maven//:<group>_<artifact> is the klib of the konan target for the Kotlin/Native rules, the
+# Android variant on an Android platform and the JVM variant otherwise. Pin with
+# `bazel run @kmp_maven//pin` after changing the install (it downloads the bazel-kmp-resolver
+# release rules_kotlin pins, see docs/bazel.md) and commit kmp_manifest.json.
+kmp_maven = use_extension("@rules_kotlin//src/main/starlark/core/repositories:kmp_maven.bzl", "kmp_maven")
+kmp_maven.install(
+    name = "kmp_maven",
+    artifacts = [
+        # The stdlib of the toolchain: the conflict resolution picks the highest requested version,
+        # so the libraries, published against older releases, get this one.
+        "org.jetbrains.kotlin:kotlin-stdlib:" + KOTLIN,
+        # core
+        "org.jetbrains.kotlinx:kotlinx-datetime:0.8.0",
+        "org.jetbrains.kotlinx:kotlinx-serialization-core:" + SERIALIZATION,
+        "org.jetbrains.kotlinx:kotlinx-serialization-json:" + SERIALIZATION,
+        "org.jetbrains.kotlinx:kotlinx-coroutines-core:" + COROUTINES,
+        # The Compose libraries of //app/ui-components and //app/shared (their commonMain
+        # dependencies), among them components-resources, the runtime of the Res classes of
+        # //bazel:compose_resources.bzl. Their Android variants pull the androidx graph from
+        # dl.google.com.
+        "org.jetbrains.compose.runtime:runtime:" + COMPOSE,
+        "org.jetbrains.compose.foundation:foundation:" + COMPOSE,
+        "org.jetbrains.compose.animation:animation:" + COMPOSE,
+        "org.jetbrains.compose.material:material-ripple:" + COMPOSE,
+        "org.jetbrains.compose.components:components-resources:" + COMPOSE,
+        "org.jetbrains.compose.ui:ui-tooling-preview:" + COMPOSE,
+        # app/ui-components: the rest of its commonMain dependencies, and the Ktor engines of its
+        # platforms (OkHttp on the JVM and Android, Darwin on iOS).
+        "io.coil-kt.coil3:coil-compose:" + COIL,
+        "io.coil-kt.coil3:coil-network-ktor3:" + COIL,
+        "io.coil-kt.coil3:coil-svg:" + COIL,
+        "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose:" + LIFECYCLE,
+        "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose:" + LIFECYCLE,
+        "com.mikepenz:multiplatform-markdown-renderer:0.39.2",
+        "io.ktor:ktor-client-okhttp:" + KTOR,
+        "io.ktor:ktor-client-darwin:" + KTOR,
+        # app/shared: the rest of its dependencies. The Metro runtime is the one of the Metro
+        # compiler plugin; metrox-android, androidsvg and preference-ktx are Android-only, slf4j-nop
+        # JVM-only (the platform source sets that use them).
+        "dev.zacsweers.metro:runtime:" + METRO,
+        "dev.zacsweers.metro:metrox-viewmodel-compose:" + METRO,
+        "dev.zacsweers.metro:metrox-android:" + METRO,
+        "androidx.activity:activity-compose:1.13.0",
+        "androidx.core:core-splashscreen:1.2.0",
+        "io.ktor:ktor-client-core:" + KTOR,
+        "io.ktor:ktor-client-logging:" + KTOR,
+        "io.ktor:ktor-client-content-negotiation:" + KTOR,
+        "io.ktor:ktor-serialization-kotlinx-json:" + KTOR,
+        "io.ktor:ktor-utils:" + KTOR,
+        "org.jetbrains.androidx.navigation3:navigation3-ui:1.1.2",
+        "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-navigation3:" + LIFECYCLE,
+        "com.mikepenz:aboutlibraries-core:13.2.1",
+        "com.russhwolf:multiplatform-settings:" + SETTINGS,
+        "com.russhwolf:multiplatform-settings-serialization:" + SETTINGS,
+        "com.russhwolf:multiplatform-settings-make-observable:" + SETTINGS,
+        "com.russhwolf:multiplatform-settings-coroutines:" + SETTINGS,
+        "io.github.mirzemehdi:kmpnotifier:1.6.1",
+        "com.doist.x:normalize:1.3.3",
+        "com.squareup.okio:okio:3.16.4",
+        "com.caverock:androidsvg-aar:1.4",
+        "androidx.preference:preference-ktx:1.2.1",
+        "org.slf4j:slf4j-nop:2.0.17",
+        # app/shared tests (commonTest, jvmTest): the settings test double and coroutines-test; the
+        # kotlin.test of the JVM tests comes from @maven_kotlinconf, like the backend's.
+        "com.russhwolf:multiplatform-settings-test:" + SETTINGS,
+        "org.jetbrains.kotlinx:kotlinx-coroutines-test:" + COROUTINES,
+    ],
+    # The published metadata of the markdown renderer declares no Compose dependency, although its
+    # classes use Compose (a Gradle build gets Compose from the other dependencies of the module).
+    # Bazel desugars each Android library against its own dependencies before dexing it, and the
+    # check of the deploy jar fails on a type the desugaring needed and did not see (RowScope of
+    # foundation-layout for the markdown tables), so the install adds them.
+    extra_dependencies = {
+        "com.mikepenz:multiplatform-markdown-renderer": [
+            "org.jetbrains.compose.foundation:foundation",
+            "org.jetbrains.compose.runtime:runtime",
+            "org.jetbrains.compose.ui:ui",
+        ],
+    },
+    manifest = "//:kmp_manifest.json",
+    platforms = [
+        "jvm",
+        "android",
+        "ios_arm64",
+        "ios_simulator_arm64",
+    ],
+    repositories = [
+        "https://repo1.maven.org/maven2",
+        "https://dl.google.com/dl/android/maven2",
+    ],
+)
+use_repo(kmp_maven, "kmp_maven")

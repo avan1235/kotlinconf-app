@@ -1,0 +1,15 @@
+# Give each konan target a distinct output root, so builds with different
+# --platforms=@rules_kotlin//kotlin/native/platforms:<target> do not overwrite each other's
+# outputs (otherwise they all land under the host's <cpu>-fastbuild/). Maps each platform to a
+# legacy --cpu, which is what the output directory is named after.
+platforms:
+  @rules_kotlin//kotlin/native/platforms:ios_arm64
+    --cpu=ios_arm64
+  @rules_kotlin//kotlin/native/platforms:ios_simulator_arm64
+    --cpu=ios_sim_arm64
+  @rules_kotlin//kotlin/native/platforms:linux_arm64
+    --cpu=aarch64
+  @rules_kotlin//kotlin/native/platforms:linux_x64
+    --cpu=k8
+  @rules_kotlin//kotlin/native/platforms:macos_arm64
+    --cpu=darwin_arm64

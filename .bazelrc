@@ -1,0 +1,52 @@
+# The Kotlin code targets JVM 11 (see //:kotlin_toolchain); the compilers and tools run on JDK 21.
+common --java_runtime_version=remotejdk_21
+common --tool_java_runtime_version=remotejdk_21
+
+# The Android build tools use Java 17 language features, and abseil-cpp, which they build, C++17
+# (as in the examples of rules_kotlin). The license versions are the SDK and NDK releases of
+# MODULE.bazel (android.sdk, android.ndk).
+common --tool_java_language_version=17
+common --repo_env=ACCEPTED_ANDROID_SDK_LICENSE_VERSION=37.0
+common --repo_env=ACCEPTED_ANDROID_NDK_LICENSE_VERSION=r29
+build --cxxopt=-std=c++17
+build --host_cxxopt=-std=c++17
+
+# The actions must not need the network: the compilers, the Android SDK and the Kotlin/Native
+# distribution come from Bazel repositories, fetched before any action runs.
+build --sandbox_default_allow_network=false
+test --test_output=errors
+
+# `bazel build //...` skips the targets the host configuration cannot build (the iOS and Android
+# ones, see docs/bazel.md) instead of failing when they are named explicitly.
+build --skip_incompatible_explicit_targets
+
+# android_binary builds its deps for this platform, so the multiplatform libraries and the aliases
+# of @kmp_maven select their Android variants. The label is canonical: on Bazel 9, rules_android
+# aliases the flag to its own and reads its labels there.
+build --android_platforms=@@//:arm64-v8a
+
+# ios_application builds its deps for the iOS simulator of an arm64 Mac, which needs no signing: the
+# framework of app/shared is then linked for ios_simulator_arm64. --ios_multi_cpus=arm64 builds for
+# a device (ios_arm64), which needs the provisioning profile (see app/iosApp/BUILD.bazel).
+build --ios_multi_cpus=sim_arm64
+
+# iOS needs Xcode: a Linux host builds the Android app, the desktop app, the backend and the tests.
+common --enable_platform_specific_config
+common:linux --deleted_packages=app/iosApp
+
+# The merged manifest of android_binary keeps the uses-permission elements of the library manifests
+# (as the manifest merger of the Android Gradle plugin does); without the flag rules_android strips
+# them before the merge (the exact-alarm permissions of app/shared, WAKE_LOCK and c2dm.RECEIVE of
+# Firebase Messaging, the DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION of androidx.core would be missing
+# from the APK).
+build --merge_android_manifest_permissions
+
+# rules_kotlin from a local checkout of its kmp branch next to the app instead of the commit
+# MODULE.bazel pins (see docs/bazel.md): `bazel build --config=local_rules_kotlin ...`, or
+# `common --config=local_rules_kotlin` in user.bazelrc. Bazel resolves a relative path against the
+# current directory, so run it from the workspace root (`%workspace%/../rules_kotlin` does not
+# work: Bazel normalizes the `..` away together with `%workspace%`).
+common:local_rules_kotlin --override_module=rules_kotlin=../rules_kotlin
+
+# Machine-specific settings, if any (git-ignored).
+try-import %workspace%/user.bazelrc

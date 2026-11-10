@@ -1,0 +1,18 @@
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_test")
+
+# The test of //bazel:google_services.bzl's generator, on a google-services.json of made-up values.
+kt_jvm_test(
+    name = "generator_test",
+    size = "small",
+    timeout = "short",
+    srcs = ["GoogleServicesTest.kt"],
+    test_class = "org.jetbrains.kotlinconf.bazel.googleservices.tests.GoogleServicesTest",
+    deps = ["//bazel/google_services:generator_lib"] + [
+        "@maven_kotlinconf//:" + name
+        for name in [
+            "junit_junit",
+            "org_jetbrains_kotlin_kotlin_test",
+            "org_jetbrains_kotlin_kotlin_test_junit",
+        ]
+    ],
+)

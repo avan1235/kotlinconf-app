@@ -1,12 +1,7 @@
 {
-  "name": "Java",
+  "name": "KotlinConf app",
   "image": "mcr.microsoft.com/devcontainers/java:1-21",
   "features": {
-    "ghcr.io/devcontainers/features/java:1": {
-      "version": "none",
-      "installMaven": "true",
-      "mavenVersion": "3.8.6",
-      "installGradle": "true"
-    }
+    "ghcr.io/devcontainers-extra/features/bazel:1": {}
   }
 }

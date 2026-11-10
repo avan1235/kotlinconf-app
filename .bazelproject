@@ -1,0 +1,12 @@
+# Project view of the Bazel plugin for IntelliJ IDEA / Android Studio.
+directories:
+  .
+  -.idea
+  -node_modules
+
+derive_targets_from_directories: true
+
+# The targets of the other platforms are built in their own configurations (see docs/bazel.md);
+# the plugin builds what is needed for the sources that are opened.
+additional_languages:
+  kotlin

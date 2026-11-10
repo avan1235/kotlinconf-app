@@ -1,0 +1,44 @@
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_binary", "kt_jvm_library")
+load("//bazel:compose_resources.bzl", "compose_resources")
+
+# The Compose resources of the desktop app: a JVM-only module (a `main` source set, the name of its
+# .cvr files), so the collectors are plain declarations, not
+# expect/actual ones.
+compose_resources(
+    name = "desktop_resources",
+    srcs = glob(["src/main/composeResources/**"]),
+    multiplatform = False,
+    package = "org.jetbrains.kotlinconf.generated.resources.desktop",
+    resources_dir = "src/main/composeResources",
+    source_set = "main",
+)
+
+kt_jvm_library(
+    name = "desktop_lib",
+    srcs = glob(["src/main/kotlin/**/*.kt"]) + [":desktop_resources_common_srcs"],
+    plugins = [
+        "//:compose_plugin",
+        "//:metro_plugin",
+    ],
+    resource_jars = [":desktop_resources_jar"],
+    visibility = ["//visibility:private"],
+    deps = [
+        "//app/shared:shared_jvm",
+        "@kmp_maven//:dev_zacsweers_metro_runtime",
+        "@kmp_maven//:org_jetbrains_compose_components_components_resources",
+        "@kmp_maven//:org_jetbrains_compose_foundation_foundation",
+        "@kmp_maven//:org_jetbrains_compose_runtime_runtime",
+        "@kmp_maven//:org_jetbrains_compose_ui_ui_tooling_preview",
+        "@maven_kotlinconf//:org_jetbrains_compose_desktop_desktop_jvm",
+        "@maven_kotlinconf//:org_jetbrains_kotlinx_kotlinx_coroutines_swing",
+    ],
+)
+
+kt_jvm_binary(
+    name = "desktopApp",
+    main_class = "org.jetbrains.kotlinconf.MainKt",
+    runtime_deps = [
+        ":desktop_lib",
+        "@maven_kotlinconf//:org_jetbrains_skiko_skiko_awt_runtime_macos_arm64",
+    ],
+)

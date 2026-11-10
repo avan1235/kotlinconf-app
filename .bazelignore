@@ -1,0 +1,9 @@
+# Not Bazel packages: the IDE directory, and the output directories left by the Gradle build of the
+# modules before they moved under app/ (not tracked; safe to delete).
+.idea
+node_modules
+androidApp
+shared
+ui-components
+ui-components-gallery
+iosApp

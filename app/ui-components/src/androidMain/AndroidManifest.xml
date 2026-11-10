@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The manifest of //app/ui-components:ui_components_android (the Gradle build generates it from the namespace). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.jetbrains.kotlinconf.ui">
+    <uses-sdk
+        android:minSdkVersion="28"
+        android:targetSdkVersion="35" />
+</manifest>

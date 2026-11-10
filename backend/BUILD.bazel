@@ -1,0 +1,131 @@
+load("@rules_java//java:java_binary.bzl", "java_binary")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library", "kt_jvm_test")
+
+# The backend of the KotlinConf app: a Ktor server (Netty) over Exposed. The dependencies are the
+# JVM artifacts of @maven_kotlinconf (MODULE.bazel), pinned in maven_install.json.
+
+MAVEN = "@maven_kotlinconf//:"
+
+BACKEND_DEPS = [
+    "//core",
+] + [
+    MAVEN + name
+    for name in [
+        "ch_qos_logback_logback_classic",
+        "com_h2database_h2",
+        "com_zaxxer_HikariCP",
+        "io_insert_koin_koin_core_jvm",
+        "io_insert_koin_koin_ktor_jvm",
+        "io_insert_koin_koin_logger_slf4j",
+        "io_ktor_ktor_client_cio_jvm",
+        "io_ktor_ktor_client_content_negotiation_jvm",
+        "io_ktor_ktor_serialization_kotlinx_json_jvm",
+        "io_ktor_ktor_server_auth_jvm",
+        "io_ktor_ktor_server_auto_head_response_jvm",
+        "io_ktor_ktor_server_call_logging_jvm",
+        "io_ktor_ktor_server_compression_jvm",
+        "io_ktor_ktor_server_conditional_headers_jvm",
+        "io_ktor_ktor_server_config_yaml_jvm",
+        "io_ktor_ktor_server_content_negotiation_jvm",
+        "io_ktor_ktor_server_cors_jvm",
+        "io_ktor_ktor_server_default_headers_jvm",
+        "io_ktor_ktor_server_forwarded_header_jvm",
+        "io_ktor_ktor_server_netty_jvm",
+        "io_ktor_ktor_server_partial_content_jvm",
+        "io_ktor_ktor_server_status_pages_jvm",
+        "io_ktor_ktor_server_swagger_jvm",
+        "org_jetbrains_exposed_exposed_core",
+        "org_jetbrains_exposed_exposed_dao",
+        "org_jetbrains_exposed_exposed_jdbc",
+        "org_postgresql_postgresql",
+    ]
+]
+
+# The testImplementation dependencies: kotlin.test (on the JUnit 4 of the Bazel test runner),
+# coroutines-test and the Ktor test host.
+TEST_DEPS = BACKEND_DEPS + [
+    MAVEN + name
+    for name in [
+        "io_ktor_ktor_server_test_host_jvm",
+        "junit_junit",
+        "org_jetbrains_kotlin_kotlin_test",
+        "org_jetbrains_kotlin_kotlin_test_junit",
+        "org_jetbrains_kotlinx_kotlinx_coroutines_test_jvm",
+    ]
+]
+
+# The kotlinx.serialization plugin: the routes and models are @Serializable.
+kt_jvm_library(
+    name = "backend_lib",
+    srcs = glob(["src/main/kotlin/**/*.kt"]),
+    plugins = ["//:serialization_plugin"],
+    resource_strip_prefix = "backend/src/main/resources",
+    resources = glob(["src/main/resources/**"]),
+    visibility = ["//visibility:private"],
+    deps = BACKEND_DEPS,
+)
+
+# `bazel run //backend` starts the server (modules and settings come from application.yaml; the
+# ports and secrets from the environment). Pass `-port=8081` after `--` to change the port, and
+# `--jvm_flag=-Dio.ktor.development=true` for development mode. A java_binary rather than a
+# kt_jvm_binary (the Kotlin is all in the library) for its deploy jar, the server as one jar for
+# the deployment: `bazel build //backend:backend_deploy.jar` (see the Procfile).
+java_binary(
+    name = "backend",
+    jvm_flags = ["-Dio.ktor.development=false"],
+    main_class = "io.ktor.server.netty.EngineMain",
+    runtime_deps = [":backend_lib"] + BACKEND_DEPS,
+)
+
+# The test resources shadow the main ones of the same path (years/..., application config): they
+# come first on the test classpath.
+kt_jvm_library(
+    name = "test_resources",
+    testonly = True,
+    resource_strip_prefix = "backend/src/test/resources",
+    resources = glob(["src/test/resources/**"]),
+)
+
+# One test target per test class (the classes are in the default package, and compile in parallel
+# and cache independently). `bazel test //backend:all --test_output=errors` prints the failing
+# test names and messages of a class.
+TEST_CLASSES = [
+    "AdminVotesApiTest",
+    "ApiTest",
+    "DataValidationTest",
+    "DocumentsApiTest",
+    "GoldenKodeeApiTest",
+    "MapsApiTest",
+    "MigrationRunnerTest",
+    "MigrationV002Test",
+    "YearBasedApiTest",
+]
+
+# The tests that read the live Sessionize API (https://sessionize.com), which the Bazel sandbox
+# blocks without the tag (the conference of the current year is synchronized from it, which the
+# ones of /2025/conference wait for).
+NETWORK_TEST_CLASSES = [
+    "ApiTest",
+    "YearBasedApiTest",
+]
+
+[
+    kt_jvm_test(
+        name = test_class,
+        size = "small",
+        timeout = "short",
+        srcs = ["src/test/kotlin/%s.kt" % test_class],
+        # The tests see the `internal` declarations of the library.
+        associates = [":backend_lib"],
+        plugins = ["//:serialization_plugin"],
+        tags = ["requires-network"] if test_class in NETWORK_TEST_CLASSES else [],
+        test_class = test_class,
+        deps = [":test_resources"] + TEST_DEPS,
+    )
+    for test_class in TEST_CLASSES
+]
+
+test_suite(
+    name = "tests",
+    tests = [":" + test_class for test_class in TEST_CLASSES],
+)

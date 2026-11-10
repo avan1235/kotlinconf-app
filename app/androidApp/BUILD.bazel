@@ -1,0 +1,100 @@
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_android//android:rules.bzl", "android_binary")
+load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
+load("//:version.bzl", "VERSION_CODE", "VERSION_NAME")
+load("//bazel:google_services.bzl", "google_services_resources")
+
+# The Android application of the KotlinConf app: an activity hosting the shared Compose App with
+# edge-to-edge, splash screen, local/push notification routing and Metro DI.
+#
+# Build the APK (the binary and its deps are built for //:arm64-v8a, the --android_platforms of
+# .bazelrc, whatever the platform of the build) with:
+#   bazel build //app/androidApp
+#
+# Install and start it on the connected device or emulator (incrementally after the first time) with
+# the mobile-install of rules_android, `--adb` pointing at the adb of an Android SDK of the machine
+# if it is not on the PATH:
+#   bazel mobile-install //app/androidApp --adb="$ANDROID_HOME/platform-tools/adb"
+#
+# The APK is in the output directory of the Android configuration (`bazel cquery --output=files
+# //app/androidApp`), not necessarily under bazel-bin/: that symlink follows the configuration of
+# the last build, so it has the APK only right after a build of //app/androidApp alone.
+
+APPLICATION_ID = "com.jetbrains.kotlinconf"
+
+# The SDK versions of the app: the minimum release it runs on and the one it targets, the
+# compileSdk of MODULE.bazel (android.sdk).
+MIN_SDK = "28"
+
+TARGET_SDK = "37"
+
+# The manifest the library links its resources against: aapt2 rejects the <adaptive-icon> of the
+# launcher icon below API 26, and the minSdkVersion of the app (manifest_values) is an attribute of
+# android_binary only, so the library gets a manifest of its own with it. The binary uses the real
+# manifest, src/main/AndroidManifest.xml, below.
+write_file(
+    name = "android_lib_manifest",
+    out = "android_lib/AndroidManifest.xml",
+    content = [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
+        '    <uses-sdk android:minSdkVersion="%s" />' % MIN_SDK,
+        "</manifest>",
+        "",
+    ],
+)
+
+# The Firebase string resources of google-services.json (the output of the Google Services Gradle
+# plugin), generated at build time; see //bazel:google_services.bzl.
+google_services_resources(
+    name = "google_services",
+    src = "google-services.json",
+    package = APPLICATION_ID,
+)
+
+kt_android_library(
+    name = "android_lib",
+    srcs = glob(["src/main/kotlin/**/*.kt"]),
+    custom_package = APPLICATION_ID,
+    manifest = ":android_lib_manifest",
+    plugins = [
+        "//:compose_plugin",
+        "//:metro_plugin",
+    ],
+    resource_files = glob(["src/main/res/**"]) + [":google_services"],
+    target_compatible_with = ["@platforms//os:android"],
+    visibility = ["//visibility:private"],
+    deps = [
+        "//app/shared",
+        "@kmp_maven//:androidx_activity_activity_compose",
+        "@kmp_maven//:androidx_core_core_splashscreen",
+        "@kmp_maven//:dev_zacsweers_metro_metrox_android",
+        "@kmp_maven//:dev_zacsweers_metro_metrox_viewmodel_compose",
+        "@kmp_maven//:dev_zacsweers_metro_runtime",
+        "@kmp_maven//:io_github_mirzemehdi_kmpnotifier",
+        "@kmp_maven//:org_jetbrains_androidx_navigation3_navigation3_ui",
+        "@kmp_maven//:org_jetbrains_compose_runtime_runtime",
+        "@kmp_maven//:org_jetbrains_compose_ui_ui_tooling_preview",
+    ],
+)
+
+# The debug APK: the manifest values of the app (the version is the one of //:version.bzl), the
+# library manifests of the deps merged in (the receiver of app/shared, the Firebase services of
+# KMPNotifier). The dexing is the incremental one of rules_android (the default): every jar is
+# desugared before it is dexed, which the libraries compiled with Kotlin 2 (Coil, the Markdown
+# renderer, the settings library, ...) need for their invokedynamic lambdas; the monolithic dexer
+# (incremental_dexing = 0) never desugars, so with it they either fail to dex or, with a min API of
+# 26+, reach the device as invoke-custom instructions the runtime rejects.
+android_binary(
+    name = "androidApp",
+    custom_package = APPLICATION_ID,
+    manifest = "src/main/AndroidManifest.xml",
+    manifest_values = {
+        "applicationId": APPLICATION_ID,
+        "minSdkVersion": MIN_SDK,
+        "targetSdkVersion": TARGET_SDK,
+        "versionCode": VERSION_CODE,
+        "versionName": VERSION_NAME,
+    },
+    deps = [":android_lib"],
+)

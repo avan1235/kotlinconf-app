@@ -1,0 +1,68 @@
+load("@rules_kotlin//kotlin:core.bzl", "define_kt_toolchain", "kt_compiler_plugin")
+
+# The Kotlin toolchain: JVM 11 bytecode (the jvmTarget of the modules), with the language and API
+# versions of the Kotlin release of rules_kotlin (2.4.21, the one of the app).
+define_kt_toolchain(
+    name = "kotlin_toolchain",
+    jvm_target = "11",
+)
+
+# The platform of the Android app: android_binary builds its deps for it (see .bazelrc). It is named
+# after the ABI of the CPU, as rules_android expects: the name of the platform is the directory of
+# the native libraries in the APKs of mobile-install (lib/<name>/, which the device matches against
+# its ABIs).
+platform(
+    name = "arm64-v8a",
+    constraint_values = [
+        "@platforms//cpu:arm64",
+        "@platforms//os:android",
+    ],
+)
+
+# The compiler plugins of the modules, for the `plugins` of the Kotlin rules: the Kotlin/Native rules
+# pass them to the compiler as -Xplugin, the JVM and Android ones as plugins of the builder.
+
+# org.jetbrains.kotlin.plugin.serialization: the plugin of the Kotlin release of the toolchain.
+kt_compiler_plugin(
+    name = "serialization_plugin",
+    compile_phase = True,
+    id = "org.jetbrains.kotlin.serialization",
+    stubs_phase = True,
+    visibility = ["//visibility:public"],
+    deps = [
+        "@rules_kotlin//kotlin/compiler:kotlinx-serialization-compiler-plugin",
+    ],
+)
+
+# org.jetbrains.kotlin.plugin.compose: the Compose compiler of the Kotlin release (see MODULE.bazel).
+kt_compiler_plugin(
+    name = "compose_plugin",
+    id = "androidx.compose.compiler.plugins.kotlin",
+    target_embedded_compiler = True,
+    visibility = ["//visibility:public"],
+    deps = [
+        "@maven_kotlinconf//:org_jetbrains_kotlin_kotlin_compose_compiler_plugin_embeddable",
+    ],
+)
+
+# dev.zacsweers.metro: the dependency injection compiler plugin of //app/shared and the apps. The
+# options are the defaults the Metro Gradle plugin sends for Kotlin 2.4 where they differ from the
+# defaults of the compiler plugin itself (MetroPluginExtension): the contributed ViewModels and
+# storages of //app/shared have no @Inject and rely on contributes-as-inject.
+kt_compiler_plugin(
+    name = "metro_plugin",
+    compile_phase = True,
+    id = "dev.zacsweers.metro.compiler",
+    options = {
+        "enabled": ["true"],
+        "contributes-as-inject": ["true"],
+        "enable-top-level-function-injection": ["true"],
+        "generate-contribution-hints-in-fir": ["true"],
+    },
+    stubs_phase = True,
+    target_embedded_compiler = True,
+    visibility = ["//visibility:public"],
+    deps = [
+        "@maven_kotlinconf//:dev_zacsweers_metro_compiler",
+    ],
+)
