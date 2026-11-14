@@ -26,11 +26,18 @@ build time (the generated code is not committed), with a fixed set of output sou
 declares:
 
 - `shared_resources`: the rule with every output;
-- `shared_resources_common_srcs`: the sources of the common source set (`Res.kt`, the accessors,
-  `ExpectResourceCollectors.kt`), for `common_srcs` of kt_multiplatform_library, or every source of a
-  JVM-only module (`ResourceCollectors.kt` instead of the expect ones), for `srcs` of kt_jvm_library;
-- `shared_resources_platform_srcs` (multiplatform only): `ActualResourceCollectors.kt`, the same file
-  for every platform, for `srcs` of the `jvm`, `android` and native groups of the library;
+- `shared_resources_common_srcs`: the sources of the common code (`Res.kt`, the accessors,
+  `ExpectResourceCollectors.kt`), for the `srcs` of every platform of a kt_multiplatform_library (a
+  list the platforms share), or every source of a JVM-only module (`ResourceCollectors.kt` instead
+  of the expect ones), for `srcs` of kt_jvm_library;
+- `shared_resources_platform_srcs` (multiplatform only): `ActualResourceCollectors.kt`, the same
+  `actual` file for every platform. The platforms share a source by label, so they must not all
+  list this one label, which would put the `actual` beside the `expect` in the common fragment:
+  every group of platforms reaches the file through a label of its own and compiles it in its
+  fragment, below the common one. The JVM and Android take it from `:shared_resources_platform_srcs`,
+  a native group from a filegroup over the same output group — `shared_resources_actual_ios` of
+  //app/shared and `ui_components_resources_actual_ios` of //app/ui-components are the pattern:
+  `filegroup(srcs = [":shared_resources"], output_group = "platform_srcs")`;
 - `shared_resources_jar`: the resource tree as a jar, for `resource_jars` of the JVM library;
 - `shared_resources_files`: the resource tree as files, under `<name>/resources/`, for the Android
   assets (`assets = [":shared_resources_files"], assets_dir = "shared_resources/resources"`).

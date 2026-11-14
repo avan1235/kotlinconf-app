@@ -1,4 +1,4 @@
-load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library", "kt_source_set")
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
 load("//bazel:compose_resources.bzl", "compose_resources")
 
 # The UI components of the apps: the theme, the Compose components and the UiRes resources, a Kotlin
@@ -40,6 +40,9 @@ KTOR_DARWIN = KMP + "io_ktor_ktor_client_darwin"
 # The Compose compiler of every platform compilation.
 UI_COMPONENTS_PLUGINS = ["//:compose_plugin"]
 
+# The deps of the common code, which every platform compiles against its own variants of them.
+COMMON_DEPS = UI_COMPONENTS_API_DEPS + UI_COMPONENTS_DEPS
+
 # The Compose resources of the UI components: a public `UiRes` class, so //app/shared and the apps
 # use the icons, strings and fonts of the components.
 compose_resources(
@@ -52,18 +55,41 @@ compose_resources(
     visibility = ["//app:__subpackages__"],
 )
 
-# src/nonAndroidMain: the `actual` theme switch of the platforms without a Configuration, which the
-# JVM library (source_sets) and the iOS group (depends_on) compile with their own sources.
-kt_source_set(
-    name = "ui_components_non_android",
-    srcs = glob(["src/nonAndroidMain/kotlin/**/*.kt"]),
-    depends_on = [":ui_components_common"],
+# The sources of the module, in lists the platforms share: each platform lists every source it
+# compiles, and the sources that exactly the same platforms list form one K2 fragment.
+
+# Every platform: the commonMain code and the generated sources of the resources (the UiRes class,
+# its accessors and the `expect` collectors).
+COMMON = glob(["src/commonMain/kotlin/**/*.kt"]) + [":ui_components_resources_common_srcs"]
+
+# The JVM and the iOS targets, not Android: Gradle's nonAndroidMain, the `actual` theme switch of
+# the platforms without a Configuration.
+NON_ANDROID = glob(["src/nonAndroidMain/kotlin/**/*.kt"])
+
+# The Android sources alone: Gradle's androidMain, the `actual` theme switch of the Configuration.
+ANDROID = glob(["src/androidMain/kotlin/**/*.kt"])
+
+# The `actual` collectors of the resources, the same file for every platform: the JVM and Android
+# reach it through the filegroup of the macro, the iOS targets through this one, so each group of
+# platforms compiles it in its own fragment below the common `expect` one.
+filegroup(
+    name = "ui_components_resources_actual_ios",
+    srcs = [":ui_components_resources"],
+    output_group = "platform_srcs",
 )
 
-# The generated sources of the resources join the common source set (the UiRes class and its
-# accessors) and each platform compilation (the `actual` collectors); the resource tree goes on the
-# JVM classpath as a jar and into the Android assets, where the resources runtime reads it. The alias
+# The generated sources of the resources join the common sources (the UiRes class and its accessors)
+# and each platform compilation (the `actual` collectors); the resource tree goes on the JVM
+# classpath as a jar and into the Android assets, where the resources runtime reads it. The alias
 # //app/ui-components selects the variant of its consumer.
+#
+# The fragments the macro derives, named after the platforms listing their sources:
+#   COMMON alone   android-ios_arm64-ios_simulator_arm64-jvm
+#   NON_ANDROID    ios_arm64-ios_simulator_arm64-jvm, refines the common fragment
+#   the `actual` collectors of the JVM and Android   android-jvm, refines the common fragment
+#   the `actual` collectors of the iOS targets   ios_arm64-ios_simulator_arm64, refines the
+#     fragment of NON_ANDROID
+# ANDROID is the leaf `android`; the leaves of the JVM and the konan targets are empty.
 #
 # The Android library is only built for an Android platform (android_binary transitions to
 # //:arm64-v8a), where the @kmp_maven aliases select the Android variants of Compose and Coil;
@@ -71,7 +97,7 @@ kt_source_set(
 kt_multiplatform_library(
     name = "ui_components",
     android = dict(
-        srcs = glob(["src/androidMain/kotlin/**/*.kt"]) + [":ui_components_resources_platform_srcs"],
+        srcs = COMMON + ANDROID + [":ui_components_resources_platform_srcs"],
         assets = [":ui_components_resources_files"],
         assets_dir = "ui_components_resources/resources",
         custom_package = "com.jetbrains.kotlinconf.ui",
@@ -79,29 +105,25 @@ kt_multiplatform_library(
         plugins = UI_COMPONENTS_PLUGINS,
         target_compatible_with = ["@platforms//os:android"],
         exports = UI_COMPONENTS_API_DEPS,
-        deps = [KTOR_OKHTTP],
+        deps = COMMON_DEPS + [KTOR_OKHTTP],
     ),
-    common_deps = UI_COMPONENTS_API_DEPS + UI_COMPONENTS_DEPS,
-    common_srcs = glob(["src/commonMain/kotlin/**/*.kt"]) + [":ui_components_resources_common_srcs"],
     jvm = dict(
-        srcs = [":ui_components_resources_platform_srcs"],
+        srcs = COMMON + NON_ANDROID + [":ui_components_resources_platform_srcs"],
         plugins = UI_COMPONENTS_PLUGINS,
         resource_jars = [":ui_components_resources_jar"],
-        source_sets = [":ui_components_non_android"],
         exports = UI_COMPONENTS_API_DEPS,
-        deps = [KTOR_OKHTTP],
+        deps = COMMON_DEPS + [KTOR_OKHTTP],
     ),
     native = {
         "ios": dict(
-            srcs = [":ui_components_resources_platform_srcs"],
-            depends_on = [":ui_components_non_android"],
+            srcs = COMMON + NON_ANDROID + [":ui_components_resources_actual_ios"],
             plugins = UI_COMPONENTS_PLUGINS,
             targets = [
                 "ios_arm64",
                 "ios_simulator_arm64",
             ],
             exports = UI_COMPONENTS_API_DEPS,
-            deps = [KTOR_DARWIN],
+            deps = COMMON_DEPS + [KTOR_DARWIN],
         ),
     },
     visibility = ["//visibility:public"],

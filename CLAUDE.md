@@ -105,9 +105,9 @@ Each screen has a corresponding `*ViewModel` that takes `ConferenceService` as a
 
 **Source Set Hierarchy**
 
-The `app/shared` module defines custom intermediate source sets beyond the default hierarchy, each a `kt_source_set` in `app/shared/BUILD.bazel` that the JVM and Android libraries compile (`source_sets`) and the iOS group refines (`depends_on`):
-- `nonAndroidMain` — shared by `iosMain` and `jvmMain` (excludes Android)
-- `nonWebMain` — shared by `androidMain`, `iosMain`, and `jvmMain` (has `okio` dependency; kept from the time the web targets existed)
+No source sets are declared separately: every platform of a `kt_multiplatform_library` lists every source it compiles in its `srcs`, as sums of Starlark lists, and rules_kotlin derives the K2 fragments from the platforms that list each source (sources that exactly the same platforms list form one fragment; a fragment has no deps, each platform compiles the sources it shares against its own `deps`). The Gradle intermediate source sets of `app/shared` are such lists in `app/shared/BUILD.bazel`:
+- `nonAndroidMain` — added by the JVM and iOS platforms only: the fragment `ios_arm64-ios_simulator_arm64-jvm`, which refines the common one
+- `nonWebMain` — added by every platform, so it is part of the common fragment (has `okio` dependency; kept from the time the web targets existed); that merge is why `BrowserIntegration` is a plain composable of `commonMain`, not an `expect` there with its `actual` in `nonWebMain`
 
 `app/ui-components` has `nonAndroidMain` the same way.
 

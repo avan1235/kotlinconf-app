@@ -11,6 +11,11 @@ CORE_API_DEPS = [
 # The kotlinx.serialization plugin of every platform compilation (the @Serializable model classes).
 CORE_PLUGINS = ["//:serialization_plugin"]
 
+# The commonMain sources, which every platform lists, together with the deps they compile them
+# against: the sources that exactly the same platforms list form one K2 fragment, so COMMON alone
+# is the fragment android-ios_arm64-ios_simulator_arm64-jvm, and the leaf of every platform is empty.
+COMMON = glob(["src/commonMain/kotlin/**/*.kt"])
+
 # The core module: the data model shared by the backend and the apps. Common code only, compiled for
 # the JVM (//core:core_jvm, the backend and the desktop app), Android (//core:core_android) and the
 # iOS targets (//core:core_native); the alias //core selects the variant of its consumer.
@@ -21,26 +26,30 @@ CORE_PLUGINS = ["//:serialization_plugin"]
 kt_multiplatform_library(
     name = "core",
     android = dict(
+        srcs = COMMON,
         custom_package = "com.jetbrains.kotlinconf.core",
         manifest = "src/androidMain/AndroidManifest.xml",
         plugins = CORE_PLUGINS,
         target_compatible_with = ["@platforms//os:android"],
         exports = CORE_API_DEPS,
+        deps = CORE_API_DEPS,
     ),
-    common_deps = CORE_API_DEPS,
-    common_srcs = glob(["src/commonMain/kotlin/**/*.kt"]),
     jvm = dict(
+        srcs = COMMON,
         plugins = CORE_PLUGINS,
         exports = CORE_API_DEPS,
+        deps = CORE_API_DEPS,
     ),
     native = {
         "ios": dict(
+            srcs = COMMON,
             plugins = CORE_PLUGINS,
             targets = [
                 "ios_arm64",
                 "ios_simulator_arm64",
             ],
             exports = CORE_API_DEPS,
+            deps = CORE_API_DEPS,
         ),
     },
     visibility = ["//visibility:public"],
