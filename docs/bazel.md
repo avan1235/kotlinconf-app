@@ -76,6 +76,36 @@ in turn pins the resolver of the pin target,
 [bazel-kmp-resolver 0.4.0](https://github.com/avan1235/bazel-kmp-resolver/releases/tag/0.4.0), with
 the sha256 of the binary of each host; only `bazel run @kmp_maven//pin` downloads it.
 
+### Compilation avoidance
+
+A library whose declarations stay the same does not recompile its dependents (the
+[`CompileAvoidance.md`](https://github.com/JetBrains/rules_kotlin/blob/kmp/CompileAvoidance.md) of
+rules_kotlin):
+
+- The JVM and Android libraries of the multiplatform modules (`core_jvm`, `shared_jvm`,
+  `core_android`, ...) always write an ABI jar (`<name>-kt.abi.jar`: the class files without method
+  bodies, internal declarations kept), and their dependents compile against it.
+- `experimental_use_abi_jars = True` of `//:kotlin_toolchain` does the same for the plain
+  `kt_jvm_library` targets (`//backend`, `//app/desktopApp`, the tests). The tests that list a
+  library in `associates` still see its internal declarations.
+- `build --@rules_kotlin//kotlin/settings:experimental_native_header_klibs=true` in `.bazelrc`
+  makes every `kt_native_library` write a header klib (`<name>.header.klib`) in the same compilation,
+  and the Kotlin/Native compilations of its dependents read it. The links (the framework of
+  `//app/iosApp`) read the full klibs, so the framework still relinks after every edit to a library
+  it links.
+
+The body of a function that is not `inline` and a new private declaration keep both the same; an
+internal or public signature, a `const val`, a default argument or the body of an `inline` function
+change them. In a file with an `inline` function, any edit that changes the length of the file
+changes the header klib: keep `inline` functions in files of their own. A header klib leaves out
+the private subclasses of a public sealed type, so a `when` without `else` over it in a dependent
+compiles and fails at run time; a build with the setting off rejects it, so run
+`bazel test //... --@rules_kotlin//kotlin/settings:experimental_native_header_klibs=false` too
+when changing a sealed hierarchy. A target that the ABI plugin breaks takes the tag
+`kt_abi_plugin_incompatible`, a `kt_native_library` whose compiler plugins break
+`-Xheader-klib-path` (it is experimental, upstream tried it only with kotlinx.serialization) takes
+`kt_native_header_klib_incompatible`; its dependents then compile against the full jar or klib.
+
 ### Local checkout of rules_kotlin
 
 To work on the rules together with the app, clone the `kmp` branch next to the app

@@ -41,6 +41,13 @@ common:linux --deleted_packages=app/iosApp
 # from the APK).
 build --merge_android_manifest_permissions
 
+# Every kt_native_library also writes a header klib (its declarations without function bodies), and
+# the Kotlin/Native compilations of its dependents read it instead of the full klib, so an edit that
+# keeps the declarations does not recompile them; the links still read the full klibs (see
+# "Compilation avoidance" in docs/bazel.md). A library tagged kt_native_header_klib_incompatible
+# keeps the full klib for its dependents.
+build --@rules_kotlin//kotlin/settings:experimental_native_header_klibs=true
+
 # rules_kotlin from a local checkout of its kmp branch next to the app instead of the commit
 # MODULE.bazel pins (see docs/bazel.md): `bazel build --config=local_rules_kotlin ...`, or
 # `common --config=local_rules_kotlin` in user.bazelrc. Bazel resolves a relative path against the

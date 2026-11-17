@@ -1,9 +1,13 @@
 load("@rules_kotlin//kotlin:core.bzl", "define_kt_toolchain", "kt_compiler_plugin")
 
 # The Kotlin toolchain: JVM 11 bytecode (the jvmTarget of the modules), with the language and API
-# versions of the Kotlin release of rules_kotlin (2.4.21, the one of the app).
+# versions of the Kotlin release of rules_kotlin (2.4.21, the one of the app). The plain JVM libraries
+# (//backend, //app/desktopApp, the tests) emit ABI jars too, and their dependents compile against
+# them: the libraries of the multiplatform modules do so without the flag (see "Compilation
+# avoidance" in docs/bazel.md).
 define_kt_toolchain(
     name = "kotlin_toolchain",
+    experimental_use_abi_jars = True,
     jvm_target = "11",
 )
 
