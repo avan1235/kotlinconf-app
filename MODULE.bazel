@@ -15,9 +15,9 @@ module(name = "kotlinconf_app")
 bazel_dep(name = "rules_kotlin", version = "2.2.0")
 archive_override(
     module_name = "rules_kotlin",
-    urls = ["https://github.com/JetBrains/rules_kotlin/archive/3dcd5e182d32d91a711e9639b12939b73d15f7b3.tar.gz"],
-    strip_prefix = "rules_kotlin-3dcd5e182d32d91a711e9639b12939b73d15f7b3",
-    integrity = "sha256-It8WlFVRspHWhrv80ryoi7B274fJ0WyPKv52wthAJKU=",
+    urls = ["https://github.com/JetBrains/rules_kotlin/archive/6c3ed7186257d1fe6f7cb3722aaa3557811cf936.tar.gz"],
+    strip_prefix = "rules_kotlin-6c3ed7186257d1fe6f7cb3722aaa3557811cf936",
+    integrity = "sha256-VeiKg3iAV1RYsodQ5scB9Iev3lJZSKf7Mx1qsK5VBWI=",
 )
 
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
