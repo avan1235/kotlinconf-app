@@ -56,7 +56,7 @@ built, see [Unsupported](#unsupported).
 
 `MODULE.bazel` takes rules_kotlin, with its Kotlin Multiplatform rules and the `kmp_maven`
 extension, from a commit of the `kmp` branch of
-[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`6c3ed718`), the
+[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`69f76b99`), the
 way the README of rules_kotlin installs an unreleased revision ("From HEAD (Bzlmod)"):
 
 ```starlark
@@ -82,12 +82,12 @@ A library whose declarations stay the same does not recompile its dependents (th
 [`CompileAvoidance.md`](https://github.com/JetBrains/rules_kotlin/blob/kmp/CompileAvoidance.md) of
 rules_kotlin):
 
-- The JVM and Android libraries of the multiplatform modules (`core_jvm`, `shared_jvm`,
-  `core_android`, ...) always write an ABI jar (`<name>-kt.abi.jar`: the class files without method
-  bodies, internal declarations kept), and their dependents compile against it.
-- `experimental_use_abi_jars = True` of `//:kotlin_toolchain` does the same for the plain
-  `kt_jvm_library` targets (`//backend`, `//app/desktopApp`, the tests). The tests that list a
-  library in `associates` still see its internal declarations.
+- `experimental_use_abi_jars = True` of `//:kotlin_toolchain` makes every JVM and Android library —
+  the multiplatform ones (`core_jvm`, `shared_jvm`, `core_android`, ...) and the standalone
+  `kt_jvm_library` and `kt_android_library` targets (`//backend`, `//app/desktopApp`,
+  `//app/androidApp`, the tests) — write an ABI jar (`<name>-kt.abi.jar`: the class files without
+  method bodies, internal declarations kept), and its dependents compile against it. The tests that
+  list a library in `associates` still see its internal declarations.
 - `build --@rules_kotlin//kotlin/settings:experimental_native_header_klibs=true` in `.bazelrc`
   makes every `kt_native_library` write a header klib (`<name>.header.klib`) in the same compilation,
   and the Kotlin/Native compilations of its dependents read it. The links (the framework of
