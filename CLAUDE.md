@@ -64,7 +64,7 @@ The IDE project model is the Bazel plugin's (`.bazelproject`), not Gradle's. `ba
                         (compose_resources.bzl) and the google-services.json resources (google_services.bzl).
 ```
 
-Each multiplatform module is a `kt_multiplatform_library`: `//core` is an alias that selects the variant of its consumer (`//core:core_jvm`, `:core_android`, `:core_native`); same for `//app/ui-components:ui_components` and `//app/shared`. Kotlin Multiplatform libraries come from `@kmp_maven//:<group>_<artifact>` (pinned in `kmp_manifest.json`), JVM-only ones from `@maven_kotlinconf//:...` (pinned in `maven_install.json`).
+Each multiplatform module is a `kt_multiplatform_library`: `//core` is an alias that selects the variant of its consumer (`//core:core_jvm`, `:core_android`, `:core_native`), and `:core.fragments` (`bazel run`) prints its derived K2 fragment graph; same for `//app/ui-components:ui_components` and `//app/shared`. Kotlin Multiplatform libraries come from `@kmp_maven//:<group>_<artifact>` (pinned in `kmp_manifest.json`), JVM-only ones from `@maven_kotlinconf//:...` (pinned in `maven_install.json`).
 
 ## Client Architecture
 

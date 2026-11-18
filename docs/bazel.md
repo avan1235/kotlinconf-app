@@ -10,10 +10,10 @@ built, see [Unsupported](#unsupported).
 
 | Module              | Bazel targets                                                                 | Status      |
 |---------------------|-------------------------------------------------------------------------------|-------------|
-| `core`              | `//core` (alias), `//core:core_jvm`, `//core:core_android`, `//core:core_native` | JVM, Android and iOS build |
+| `core`              | `//core` (alias), `//core:core_jvm`, `//core:core_android`, `//core:core_native`, `//core:core.fragments` | JVM, Android and iOS build |
 | `backend`           | `//backend` (server, `bazel run`), `//backend:backend_deploy.jar` (runnable jar), `//backend:tests` (9 test classes) | builds, runs, tests pass |
-| `app/ui-components` | `//app/ui-components:ui_components` (alias), `:ui_components_jvm`, `:ui_components_android`, `:ui_components_native`, `:ui_components_resources` (the `UiRes` resources) | JVM, Android and iOS (`ios_arm64`, `ios_simulator_arm64`) libraries build |
-| `app/shared`        | `//app/shared` (alias), `//app/shared:shared_jvm`, `:shared_android`, `:shared_native`, `:shared_resources` (the `Res` resources), `//app/shared:tests` (2 test classes) | JVM, Android and iOS libraries build, JVM tests pass |
+| `app/ui-components` | `//app/ui-components:ui_components` (alias), `:ui_components_jvm`, `:ui_components_android`, `:ui_components_native`, `:ui_components.fragments`, `:ui_components_resources` (the `UiRes` resources) | JVM, Android and iOS (`ios_arm64`, `ios_simulator_arm64`) libraries build |
+| `app/shared`        | `//app/shared` (alias), `//app/shared:shared_jvm`, `:shared_android`, `:shared_native`, `:shared.fragments`, `:shared_resources` (the `Res` resources), `//app/shared:tests` (2 test classes) | JVM, Android and iOS libraries build, JVM tests pass |
 | `app/desktopApp`    | `//app/desktopApp` (the `kt_jvm_binary`, `bazel run`), `:desktop_lib`, `:desktop_resources` | builds and runs on macOS arm64 |
 | `app/androidApp`    | `//app/androidApp` (the debug APK; `bazel mobile-install //app/androidApp` installs it incrementally), `:android_lib`, `:google_services` | APK builds, debug-signed; installs and runs on an emulator with `mobile-install` too |
 | `app/iosApp`        | `//app/iosApp:KotlinConf` (the app, an `ios_application` of rules_apple), `:shared` (the Kotlin/Native framework), `:compose-resources`, `:ipa_test`, `:xcodeproj` | builds an IPA for the arm64 simulator and runs there; device build needs a provisioning profile |
@@ -56,7 +56,7 @@ built, see [Unsupported](#unsupported).
 
 `MODULE.bazel` takes rules_kotlin, with its Kotlin Multiplatform rules and the `kmp_maven`
 extension, from a commit of the `kmp` branch of
-[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`69f76b99`), the
+[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`42970f63`), the
 way the README of rules_kotlin installs an unreleased revision ("From HEAD (Bzlmod)"):
 
 ```starlark
@@ -167,10 +167,14 @@ bazel build //core:core_jvm                                   # the JVM variant 
 bazel build //core:core_android --platforms=//:arm64-v8a  # its Android variant
 bazel build //core:core_native \
     --platforms=@rules_kotlin//kotlin/native/platforms:ios_simulator_arm64   # its iOS klib
+bazel run //app/shared:shared.fragments                       # its derived K2 fragment graph
 ```
 
 The alias of a module (`//core`) selects the variant of its consumer: the klib under a
 Kotlin/Native rule, the Android library on an Android platform, the JVM library otherwise.
+`<name>.fragments` (`//core:core.fragments`, `//app/ui-components:ui_components.fragments`,
+`//app/shared:shared.fragments`) prints the derived fragments, their `refines` edges and their
+`srcs` without compiling or fetching platform toolchains.
 
 ```sh
 bazel run //app/desktopApp                          # the Compose desktop app
@@ -414,6 +418,7 @@ reads them:
 bazel build //app/ui-components:ui_components_jvm
 bazel build --platforms=//:arm64-v8a //app/ui-components:ui_components_android
 bazel build --platforms=@rules_kotlin//kotlin/native/platforms:ios_simulator_arm64 //app/ui-components:ui_components_native
+bazel run //app/ui-components:ui_components.fragments
 ```
 
 Three generic fixes in rules_kotlin came out of it: the `<name>_srcs` filegroup of
@@ -478,6 +483,7 @@ bazel build //app/shared:shared_jvm
 bazel test //app/shared:tests --test_output=errors
 bazel build --platforms=//:arm64-v8a //app/shared:shared_android
 bazel build --platforms=@rules_kotlin//kotlin/native/platforms:ios_simulator_arm64 //app/shared:shared_native
+bazel run //app/shared:shared.fragments
 ```
 
 One more generic change in rules_kotlin came out of `bazel build //app/shared/...`: a fragment of
