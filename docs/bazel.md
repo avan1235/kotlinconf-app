@@ -24,9 +24,10 @@ built, see [Unsupported](#unsupported).
 - Nothing to check out besides the app: Bazel fetches rules_kotlin itself, from the commit of the
   `kmp` branch that `MODULE.bazel` pins (see [rules_kotlin](#rules_kotlin)). That commit has the rules
   this migration needs: the fragments of the K2 compilations of a `kt_multiplatform_library`, derived
-  from the `srcs` its platforms list (a fragment has no deps; the deps of the platform libraries
-  are their own `deps`, which the dexing aspect of `android_binary` and the mobile-install of
-  rules_android follow), the Kotlin/Native link dependencies pinned per release,
+  from the `srcs` of the macro and those its platforms add (a fragment has no deps; the `deps`,
+  `exports` and `plugins` of the macro are prepended to those of each platform library, whose `deps`
+  the dexing aspect of `android_binary` and the mobile-install of rules_android follow), the
+  Kotlin/Native link dependencies pinned per release,
   `kt_native_framework.transitive_exports`, and the `kmp_maven` fixes (including
   `extra_dependencies`, dependency-only redirects and variant target naming).
 - `bazel run @kmp_maven//pin`, which re-pins `kmp_manifest.json` (see [Dependencies](#dependencies)),
@@ -56,7 +57,7 @@ built, see [Unsupported](#unsupported).
 
 `MODULE.bazel` takes rules_kotlin, with its Kotlin Multiplatform rules and the `kmp_maven`
 extension, from a commit of the `kmp` branch of
-[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`42970f63`), the
+[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`1e3c123d`), the
 way the README of rules_kotlin installs an unreleased revision ("From HEAD (Bzlmod)"):
 
 ```starlark
@@ -299,9 +300,9 @@ The prepared tree keeps the layout the runtime expects, `composeResources/<packa
 the XML files of the `values*` directories become `<name>.<sourceSet>.cvr` files whose records the
 accessors address by byte offset, every other file is copied. The wiring of a multiplatform module
 lists `<name>_common_srcs` (the `Res` class, the accessors and the `expect` collectors) in the
-`srcs` of every platform, through a list they share, `components-resources` among the `deps` of
-every platform, and `<name>_platform_srcs` — `ActualResourceCollectors.kt`, the same file for
-every platform — through a label per group of platforms: the platforms share a source by label, so
+`srcs` of the macro, `components-resources` in its `deps` (and its `exports` when the resources are
+part of the module's API), and `<name>_platform_srcs` — `ActualResourceCollectors.kt`, the same file
+for every platform — through a label per group of platforms: the platforms share a source by label, so
 the JVM and Android take it from `:<name>_platform_srcs` and a native group from a filegroup of
 its own over the same output group (`shared_resources_actual_ios` of //app/shared,
 `ui_components_resources_actual_ios` of //app/ui-components), and every group compiles its
@@ -390,12 +391,14 @@ dependency) named the same target.
 
 ### `app/ui-components`
 
-`//app/ui-components:ui_components` is a `kt_multiplatform_library` with the Compose plugin: the
-sources are lists the platforms share, and the macro derives the fragments from the platforms
-that list each source — `src/commonMain` plus the generated `UiRes` accessors is the common
-fragment `android-ios_arm64-ios_simulator_arm64-jvm`; `src/nonAndroidMain` (the `actual` theme
-switch of the platforms without a `Configuration`) is the fragment `ios_arm64-ios_simulator_arm64-jvm`,
-compiled by the JVM and the iOS targets and refining the common one; the `actual` collectors of
+`//app/ui-components:ui_components` is a `kt_multiplatform_library` whose own `srcs`, `deps`,
+`exports` and `plugins` (`//:compose_plugin`) are prepended to those of every platform, so each
+platform lists only what it adds, and the macro derives the fragments from the platforms that
+compile each source — the `srcs` of the macro (`src/commonMain` plus the generated `UiRes`
+accessors) are the common fragment `android-ios_arm64-ios_simulator_arm64-jvm`; `src/nonAndroidMain`
+(the `actual` theme switch of the platforms without a `Configuration`) is the fragment
+`ios_arm64-ios_simulator_arm64-jvm`, compiled by the JVM and the iOS targets and refining the
+common one; the `actual` collectors of
 the JVM and Android are `android-jvm`, refining the common fragment, and those of the iOS targets
 are `ios_arm64-ios_simulator_arm64`, refining the fragment of `src/nonAndroidMain` — one
 generated file, which each group of platforms reaches through its own label, as
@@ -431,33 +434,33 @@ foundation redirect).
 ### `app/shared`
 
 `//app/shared:shared` is a `kt_multiplatform_library` with the Metro, Compose and serialization
-plugins on every platform, the same shape as `ui-components`:
+plugins in the `plugins` of the macro, the same shape as `ui-components`:
 
-- the sources are lists the platforms share (`COMMON`, `NON_WEB`, `NON_ANDROID`, `JVM`, `ANDROID`,
-  `IOS` in `app/shared/BUILD.bazel`), and the `srcs` of each platform add up those of every source
-  it compiles, from which the macro derives the fragments: `src/commonMain`, the generated `Res`
-  accessors and `src/nonWebMain` are the common fragment `android-ios_arm64-ios_simulator_arm64-jvm`
-  (every platform lists them); `src/nonAndroidMain` (the SVG decoder of the Skia platforms) is
-  `ios_arm64-ios_simulator_arm64-jvm`, refining the common fragment; `src/iosMain` with the `actual`
-  collectors of the iOS targets is `ios_arm64-ios_simulator_arm64`; the `actual` collectors of the
-  JVM and Android are `android-jvm` — one generated file, which each group of platforms reaches
-  through its own label, as [above](#compose-multiplatform-resources), so that it compiles in its
-  fragment below the common `expect` one —; and `src/jvmMain` and `src/androidMain` are the leaves
-  `jvm` and `android`;
+- the `srcs` of the macro (`COMMON + NON_WEB`) are prepended to every platform, while the platforms
+  add only their shared intermediate or leaf lists (`NON_ANDROID`, `JVM`, `ANDROID`, `IOS` in
+  `app/shared/BUILD.bazel`), from which the macro derives the fragments: `src/commonMain`, the
+  generated `Res` accessors and `src/nonWebMain` are the common fragment
+  `android-ios_arm64-ios_simulator_arm64-jvm`; `src/nonAndroidMain` (the SVG decoder of the Skia
+  platforms) is `ios_arm64-ios_simulator_arm64-jvm`, refining the common fragment; `src/iosMain`
+  with the `actual` collectors of the iOS targets is `ios_arm64-ios_simulator_arm64`; the `actual`
+  collectors of the JVM and Android are `android-jvm` — one generated file, which each group of
+  platforms reaches through its own label, as [above](#compose-multiplatform-resources), so that it
+  compiles in its fragment below the common `expect` one —; and `src/jvmMain` and `src/androidMain`
+  are the leaves `jvm` and `android`;
 - `src/nonWebMain` (the Okio file storage `OkioAssetStorage` and the `BrowserIntegration` of the
   non-web platforms, with Okio as its dependency) keeps its Gradle name although the Bazel build
-  has no web targets, so the sources stay where upstream has them. Every platform compiles it, so
-  it is part of the common fragment, which is why `BrowserIntegration` is a plain composable of
-  `commonMain` now and not an `expect` there with its `actual` in `nonWebMain`: an `expect` and
-  its `actual` cannot live in one fragment. The Android library compiles `src/androidMain` on top
-  of the fragments of the common code;
+  has no web targets, so the sources stay where upstream has them. It is part of the `srcs` of the
+  macro, so it merges into the common fragment, which is why `BrowserIntegration` is a plain
+  composable of `commonMain` now and not an `expect` there with its `actual` in `nonWebMain`: an
+  `expect` and its `actual` cannot live in one fragment. The Android library compiles
+  `src/androidMain` on top of the fragments of the common code;
 - the `api` dependencies of the former Gradle file (`//core`, `//app/ui-components:ui_components`,
   the Compose runtime, foundation, animation and `components-resources`, the Ktor logging, content
-  negotiation and JSON serialization, KMPNotifier) are `exports` of each platform library, the
-  `implementation` ones are in the `deps` of every platform — a fragment has no deps, each
-  platform compiles the sources it shares against its own `deps`, where the `@kmp_maven` aliases
-  select its variants —; the Metro runtime, which the Metro Gradle plugin adds to `commonMain`
-  itself, is listed explicitly;
+  negotiation and JSON serialization, KMPNotifier) are the `exports` of the macro (and part of its
+  `deps`), and the `implementation` ones join them in its `deps` — prepended to every platform
+  library, as a fragment has no deps and each platform compiles the sources it shares against its
+  own `deps`, where the `@kmp_maven` aliases select its variants —; the Metro runtime, which the
+  Metro Gradle plugin adds to `commonMain` itself, is listed explicitly;
 - platform dependencies as in Gradle: the OkHttp engine and `slf4j-nop` on the JVM; the OkHttp
   engine, `metrox-android`, AndroidSVG and `preference-ktx` on Android, with
   `src/androidMain/AndroidManifest.xml` and `custom_package = "org.jetbrains.kotlinconf"`; the

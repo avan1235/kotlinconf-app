@@ -27,8 +27,8 @@ declares:
 
 - `shared_resources`: the rule with every output;
 - `shared_resources_common_srcs`: the sources of the common code (`Res.kt`, the accessors,
-  `ExpectResourceCollectors.kt`), for the `srcs` of every platform of a kt_multiplatform_library (a
-  list the platforms share), or every source of a JVM-only module (`ResourceCollectors.kt` instead
+  `ExpectResourceCollectors.kt`), for the `srcs` of a kt_multiplatform_library itself, which it
+  prepends to every platform, or every source of a JVM-only module (`ResourceCollectors.kt` instead
   of the expect ones), for `srcs` of kt_jvm_library;
 - `shared_resources_platform_srcs` (multiplatform only): `ActualResourceCollectors.kt`, the same
   `actual` file for every platform. The platforms share a source by label, so they must not all
