@@ -115,9 +115,9 @@ compose_resources(
     visibility = ["//app:__subpackages__"],
 )
 
-# The sources of the module: kt_multiplatform_library prepends its own `srcs` to those of every
-# platform, each platform adds its own sources, and the sources that the exact same platforms
-# compile form one K2 fragment.
+# The sources of the module, along the hierarchy of kt_multiplatform_library: each platform compiles
+# the lists of its lineage from `common` down to itself, and the macro derives the K2 fragments from
+# the groups and platforms listing each source.
 
 # Every platform (the `srcs` of the macro): the commonMain code, the generated sources of the
 # resources (the Res class, its accessors and the `expect` collectors), and Gradle's nonWebMain, the
@@ -127,11 +127,11 @@ COMMON = glob(["src/commonMain/kotlin/**/*.kt"]) + [":shared_resources_common_sr
 
 NON_WEB = glob(["src/nonWebMain/kotlin/**/*.kt"])
 
-# The JVM and the iOS targets, not Android: Gradle's nonAndroidMain, the SVG decoder of the Skia
-# platforms.
+# The JVM and the native targets, not Android: Gradle's nonAndroidMain, the SVG decoder of the Skia
+# platforms, listed in `srcs_jvm` and `srcs_native`.
 NON_ANDROID = glob(["src/nonAndroidMain/kotlin/**/*.kt"])
 
-# The sources of one platform each: Gradle's jvmMain, androidMain and iosMain, the `actual`
+# The sources of the JVM, Android and iOS: Gradle's jvmMain, androidMain and iosMain, the `actual`
 # declarations of the `expect` ones of the common code.
 JVM = glob(["src/jvmMain/kotlin/**/*.kt"])
 
@@ -139,30 +139,21 @@ ANDROID = glob(["src/androidMain/kotlin/**/*.kt"])
 
 IOS = glob(["src/iosMain/kotlin/**/*.kt"])
 
-# The `actual` collectors of the resources, the same file for every platform: the JVM and Android
-# reach it through the filegroup of the macro, the iOS targets through this one, so each group of
-# platforms compiles it in its own fragment below the common `expect` one.
-filegroup(
-    name = "shared_resources_actual_ios",
-    srcs = [":shared_resources"],
-    output_group = "platform_srcs",
-)
-
-# The generated sources of the resources join the `srcs` of the macro (the Res class and its
-# accessors) and each platform compilation (the `actual` collectors); the resource tree goes on the
-# JVM classpath as a jar and into the Android assets, where the resources runtime reads it. The
-# alias //app/shared selects the variant of its consumer.
+# The generated sources of the resources join the `srcs` of the macro (the Res class, its accessors
+# and the `expect` collectors) and `srcs_android`, `srcs_jvm` and `srcs_native` (the `actual`
+# collectors); the resource tree goes on the JVM classpath as a jar and into the Android assets,
+# where the resources runtime reads it. The alias //app/shared selects the variant of its consumer.
 #
-# The fragments the macro derives, named after the platforms compiling their sources, each refining
-# the smallest fragments of more platforms that include its own:
-#   COMMON + NON_WEB (the macro's `srcs`)   android-ios_arm64-ios_simulator_arm64-jvm
-#   NON_ANDROID        ios_arm64-ios_simulator_arm64-jvm, refines the common fragment
-#   IOS and the `actual` collectors of the iOS targets   ios_arm64-ios_simulator_arm64, refines
-#     the fragment of NON_ANDROID
-#   the `actual` collectors of the JVM and Android   android-jvm, refines the common fragment
-# JVM and ANDROID are the leaves `jvm` and `android`; the leaves of the konan targets are empty.
-# The `actual` declarations are in the leaves and the fragments of the platform sources, so every
-# platform compiles one `actual` per `expect`.
+# The fragments the macro derives from the groups and platforms listing each source, each refining
+# the fragments directly above it:
+#   COMMON + NON_WEB (the macro's `srcs`)     common
+#   :shared_resources_platform_srcs           android-jvm-native, refines common
+#   NON_ANDROID (`srcs_jvm`, `srcs_native`)   jvm-native, refines android-jvm-native
+#   IOS (`srcs_ios`)                          ios, refines jvm-native
+# JVM and ANDROID are the leaves `jvm` (refining jvm-native) and `android` (refining
+# android-jvm-native); the leaves of the konan targets are empty (refining ios). The `actual`
+# declarations are in the leaves and the fragments below `common`, so every platform compiles one
+# `actual` per `expect`.
 #
 # The Android library is only built for an Android platform (android_binary transitions to
 # //:arm64-v8a), where the @kmp_maven aliases select the Android variants of the libraries: its
@@ -174,31 +165,30 @@ kt_multiplatform_library(
     name = "shared",
     srcs = COMMON + NON_WEB,
     android = dict(
-        srcs = ANDROID + [":shared_resources_platform_srcs"],
         assets = [":shared_resources_files"],
         assets_dir = "shared_resources/resources",
         custom_package = "org.jetbrains.kotlinconf",
         exports_manifest = 1,
         manifest = "src/androidMain/AndroidManifest.xml",
         target_compatible_with = ["@platforms//os:android"],
-        deps = ANDROID_DEPS,
     ),
+    deps_android = ANDROID_DEPS,
+    deps_ios = IOS_DEPS,
+    deps_jvm = JVM_DEPS,
     jvm = dict(
-        srcs = NON_ANDROID + JVM + [":shared_resources_platform_srcs"],
         resource_jars = [":shared_resources_jar"],
-        deps = JVM_DEPS,
     ),
-    native = {
-        "ios": dict(
-            srcs = NON_ANDROID + IOS + [":shared_resources_actual_ios"],
-            targets = [
-                "ios_arm64",
-                "ios_simulator_arm64",
-            ],
-            deps = IOS_DEPS,
-        ),
-    },
+    platforms = [
+        "jvm",
+        "android",
+        "ios_arm64",
+        "ios_simulator_arm64",
+    ],
     plugins = SHARED_PLUGINS,
+    srcs_android = ANDROID + [":shared_resources_platform_srcs"],
+    srcs_ios = IOS,
+    srcs_jvm = NON_ANDROID + JVM + [":shared_resources_platform_srcs"],
+    srcs_native = NON_ANDROID + [":shared_resources_platform_srcs"],
     visibility = ["//visibility:public"],
     exports = SHARED_API_DEPS,
     deps = SHARED_API_DEPS + SHARED_DEPS,

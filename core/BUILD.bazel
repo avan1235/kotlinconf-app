@@ -11,9 +11,9 @@ CORE_API_DEPS = [
 # The core module: the data model shared by the backend and the apps, with the kotlinx.serialization
 # plugin for the @Serializable model classes. Common code only, compiled for the JVM
 # (//core:core_jvm, the backend and the desktop app), Android (//core:core_android) and the iOS
-# targets (//core:core_native); the alias //core selects the variant of its consumer. The macro
-# prepends its own `srcs` to those of every platform, so the commonMain sources alone form the K2
-# fragment android-ios_arm64-ios_simulator_arm64-jvm, and the leaf of every platform is empty.
+# targets (//core:core_native); the alias //core selects the variant of its consumer. The commonMain
+# sources, in the `srcs` of the macro, form the K2 fragment `common`, and the leaf of every platform
+# is empty.
 #
 # The Android library is only built for an Android platform (android_binary transitions to
 # //:arm64-v8a), where the @kmp_maven aliases select the Android variants of the libraries; a
@@ -26,15 +26,12 @@ kt_multiplatform_library(
         manifest = "src/androidMain/AndroidManifest.xml",
         target_compatible_with = ["@platforms//os:android"],
     ),
-    jvm = {},
-    native = {
-        "ios": dict(
-            targets = [
-                "ios_arm64",
-                "ios_simulator_arm64",
-            ],
-        ),
-    },
+    platforms = [
+        "jvm",
+        "android",
+        "ios_arm64",
+        "ios_simulator_arm64",
+    ],
     plugins = ["//:serialization_plugin"],
     visibility = ["//visibility:public"],
     exports = CORE_API_DEPS,

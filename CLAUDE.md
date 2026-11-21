@@ -105,9 +105,9 @@ Each screen has a corresponding `*ViewModel` that takes `ConferenceService` as a
 
 **Source Set Hierarchy**
 
-No source sets are declared separately: `kt_multiplatform_library` prepends its own `srcs`, `deps`, `exports` and `plugins` to those of every platform while each platform lists only what it adds, and rules_kotlin derives the K2 fragments from the platforms that compile each source (sources that exactly the same platforms compile form one fragment; a fragment has no deps, each platform compiles the sources it shares against its own `deps`, those of the macro first). The Gradle intermediate source sets of `app/shared` are Starlark source lists in `app/shared/BUILD.bazel`:
-- `nonAndroidMain` — added by the JVM and iOS platforms only: the fragment `ios_arm64-ios_simulator_arm64-jvm`, which refines the common one
-- `nonWebMain` — part of the `srcs` of the macro (compiled by every platform), so it is part of the common fragment (has `okio` dependency; kept from the time the web targets existed); that merge is why `BrowserIntegration` is a plain composable of `commonMain`, not an `expect` there with its `actual` in `nonWebMain`
+`kt_multiplatform_library` follows Kotlin Multiplatform's default hierarchy (`platforms` lists the leaf platforms, its `srcs`, `deps`, `exports` and `plugins` are `common`, and `<attr>_<group or platform>` — e.g. `srcs_ios`, `srcs_native`, `deps_android` — are concatenated down each platform's lineage while `jvm`, `android` and `native` dicts hold the remaining library attributes). rules_kotlin derives the K2 fragments from the groups and platforms that list each source (`common`, `ios`, or `<owner1>-<owner2>` when shared across branches; a fragment has no deps, each platform compiles the fragments of its lineage against its own concatenated `deps`). The Gradle intermediate source sets of `app/shared` are Starlark source lists in `app/shared/BUILD.bazel`:
+- `nonAndroidMain` — listed in `srcs_jvm` and `srcs_native`: the fragment `jvm-native`, refining `android-jvm-native` (the generated `actual` resource collectors) and `common`
+- `nonWebMain` — part of the `srcs` of the macro (compiled by every platform), so it is part of the `common` fragment (has `okio` dependency; kept from the time the web targets existed); that merge is why `BrowserIntegration` is a plain composable of `commonMain`, not an `expect` there with its `actual` in `nonWebMain`
 
 `app/ui-components` has `nonAndroidMain` the same way.
 

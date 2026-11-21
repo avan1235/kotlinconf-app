@@ -37,15 +37,13 @@ kt_jvm_test(
     deps = ["//bazel/compose_resources:generator_lib"] + TEST_DEPS,
 )
 
-# The fixture as the resources of a module of the JVM platform alone: a multiplatform library of
-# one platform has no fragment — all its sources are its leaf — so the collectors are plain
-# declarations (multiplatform = False), not `expect` and `actual` ones in one fragment; the
-# generated common sources and the resource tree as a jar on the classpath.
+# The fixture as the resources of a multiplatform module (here of the JVM platform alone): the
+# generated common sources (`expect` collectors) in the `common` fragment, the `actual` collectors
+# in the `jvm` leaf, and the resource tree as a jar on the classpath.
 compose_resources(
     name = "fixture",
     testonly = True,
     srcs = FIXTURE,
-    multiplatform = False,
     package = "org.example.fixture.generated.resources",
     resources_dir = "testdata/composeResources",
 )
@@ -53,11 +51,13 @@ compose_resources(
 kt_multiplatform_library(
     name = "fixture_lib",
     testonly = True,
+    srcs = [":fixture_common_srcs"],
     jvm = dict(
-        srcs = [":fixture_common_srcs"],
         resource_jars = [":fixture_jar"],
-        deps = [RESOURCES_RUNTIME],
     ),
+    platforms = ["jvm"],
+    srcs_jvm = [":fixture_platform_srcs"],
+    deps = [RESOURCES_RUNTIME],
 )
 
 # The fixture as the resources of a JVM-only module, as the desktop app's: plain collectors, a public
