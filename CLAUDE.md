@@ -61,7 +61,8 @@ The IDE project model is the Bazel plugin's (`.bazelproject`), not Gradle's. `ba
 //backend             — Ktor/Netty server. Fetches data from Sessionize, stores votes/users in DB.
 
 //bazel               — Build tooling of this repository: the Compose resources generator
-                        (compose_resources.bzl) and the google-services.json resources (google_services.bzl).
+                        (compose_resources.bzl), the google-services.json resources (google_services.bzl),
+                        and the Metro Kotlin/Native compiler plugin adapter (metro_compat.bzl).
 ```
 
 Each multiplatform module is a `kt_multiplatform_library`: `//core` is an alias that selects the variant of its consumer (`//core:core_jvm`, `:core_android`, `:core_native`), and `:core.fragments` (`bazel run`) prints its derived K2 fragment graph; same for `//app/ui-components:ui_components` and `//app/shared`. Kotlin Multiplatform libraries come from `@kmp_maven//:<group>_<artifact>` (pinned in `kmp_manifest.json`), JVM-only ones from `@maven_kotlinconf//:...` (pinned in `maven_install.json`).
@@ -129,10 +130,10 @@ Each screen has a corresponding `*ViewModel` that takes `ConferenceService` as a
 
 **Version management**: The version is declared once, in `version.bzl` (`VERSION_NAME`, `VERSION_CODE`); the Android manifest values, the iOS `Info.plist` (`apple_bundle_version`) and the `app_version` string resource of `app/shared` are derived from it at build time. Edit `version.bzl` only; there is no `prepareRelease`. `aboutlibraries.json` (the AboutLibraries export in `app/shared/src/commonMain/composeResources/files/`) is a committed resource refreshed by hand when dependencies change.
 
-**Dependency versions**: Declared in `MODULE.bazel` (`KOTLIN`, `COMPOSE`, `KTOR`, `METRO`, ...), not in a version catalog. After changing them, re-pin `kmp_manifest.json` and/or `maven_install.json` (commands above) and commit the result. The Kotlin compiler is the release rules_kotlin pins (2.4.21).
+**Dependency versions**: Declared in `MODULE.bazel` (`KOTLIN`, `KOTLIN_NATIVE`, `COMPOSE`, `KTOR`, `METRO`, ...), not in a version catalog. After changing them, re-pin `kmp_manifest.json` and/or `maven_install.json` (commands above) and commit the result. The JVM/Android Kotlin compiler is 2.4.21 (`KOTLIN`), while Kotlin/Native is 2.5.20-dev-5696 (`KOTLIN_NATIVE`, pinned by rules_kotlin for the Kotlin/Native Build Tools API).
 
 **Resources**: Compose resources are generated at build time by `//bazel:compose_resources.bzl` (nothing generated is committed). `app/shared` uses resource class `Res` / `org.jetbrains.kotlinconf.generated.resources`, `app/ui-components` its own `UiRes` / `org.jetbrains.kotlinconf.ui.generated.resources`. Don't mix them.
 
-**Compiler plugins**: `//:compose_plugin`, `//:serialization_plugin` and `//:metro_plugin` (root `BUILD.bazel`) are listed in the `plugins` of the targets that need them; Metro comes before Compose.
+**Compiler plugins**: `//:compose_plugin`, `//:serialization_plugin` and `//:metro_plugin` (root `BUILD.bazel`) are used on JVM and Android (`plugins` / `plugins_jvm` / `plugins_android`), while `//:compose_native_plugin`, `//:serialization_native_plugin` and `//:metro_native_plugin` target Kotlin/Native (`plugins_native`); Metro comes before Compose.
 
 **Backend tests**: Use `ktor-server-test-host` with `test-application.yaml` config (an H2 database, no external service except for the two network tests below). Each test class is its own `kt_jvm_test` target listed in `TEST_CLASSES` of `backend/BUILD.bazel`: add new classes there. `ApiTest` and `YearBasedApiTest` read the live Sessionize API and are tagged `requires-network` (listed in `NETWORK_TEST_CLASSES`); the other seven run offline in the sandbox.

@@ -58,7 +58,7 @@ built, see [Unsupported](#unsupported).
 
 `MODULE.bazel` takes rules_kotlin, with its Kotlin Multiplatform rules and the `kmp_maven`
 extension, from a commit of the `kmp` branch of
-[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`5c535ad3`), the
+[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`c3bf80aa`), the
 way the README of rules_kotlin installs an unreleased revision ("From HEAD (Bzlmod)"):
 
 ```starlark
@@ -77,6 +77,22 @@ CI) keeps it under that hash. The archive holds the committed files of the commi
 in turn pins the resolver of the pin target,
 [bazel-kmp-resolver 0.4.0](https://github.com/avan1235/bazel-kmp-resolver/releases/tag/0.4.0), with
 the sha256 of the binary of each host; only `bazel run @kmp_maven//pin` downloads it.
+
+### Kotlin Build Tools API
+
+Every Kotlin compilation in the workspace runs through the Kotlin Build Tools API:
+
+- `build --@rules_kotlin//kotlin/settings:experimental_build_tools_api=true` in `.bazelrc` switches
+  the JVM and Android `KotlinCompile` multiplex worker from `K2JVMCompiler` to
+  `JvmCompilationOperation` (`kotlin-build-tools-impl` + `kotlin-compiler-embeddable` +
+  `jvm-abi-gen` in a cached isolated classloader).
+- `experimental_native_build_tools_api` is on by default in rules_kotlin (`c3bf80aa`): every
+  `kt_native_library` compiles its `.klib` (and `.header.klib`) through
+  `NativeKlibCompilationOperation` in-process on Kotlin/Native `2.5.20-dev-5696` (`konan_launcher`
+  with `SharedApiClassesClassLoader`, producing byte-identical klibs to `konanc`; pass
+  `--@rules_kotlin//kotlin/settings:experimental_native_build_tools_api=false` to fall back to
+  `konanc`). Framework links (`//app/iosApp:shared`) still run `konanc`, as the Build Tools API has
+  no link operation yet.
 
 ### Compilation avoidance
 
@@ -315,27 +331,35 @@ which the runtime reads the system theme through.
 
 ## Toolchain and compiler plugins
 
-The Kotlin compiler is the release rules_kotlin pins, 2.4.21, the one the former Gradle build used
-(`KOTLIN` in `MODULE.bazel` names it for the artifacts that must match the compiler: the Compose
-compiler plugin, the stdlib, kotlin-test); the Kotlin/Native distribution and its link dependencies
-are the ones of that release too, and it is the only release the rules support for Kotlin/Native:
-they pin the LLVM and the link dependencies of the framework per release, with 2.4.21 as the only
-entry, and `kotlin_native.version` of another release fails fast against that table. Another Kotlin
-release is therefore a change of rules_kotlin first (its table, on the `kmp` branch), then of
-`KOTLIN` and the pin here; `rules_kotlin_extensions.kotlinc_version` alone moves only the JVM
-compiler. The root `BUILD.bazel` declares the toolchain (JVM 11 bytecode, as the Gradle modules; the
-language and API versions are the defaults of the release) and the compiler plugins of the former
-Gradle build, to list in the `plugins` of a target:
+rules_kotlin pins two Kotlin compiler versions while the Kotlin/Native Build Tools API has not
+reached a stable Kotlin release yet:
 
-- `//:serialization_plugin` — kotlinx.serialization, bundled with the Kotlin release;
-- `//:compose_plugin` — the Compose compiler of the Kotlin release;
-- `//:metro_plugin` — Metro (1.4.0), with the options the Metro Gradle plugin sends by default for
-  Kotlin 2.4 where they differ from the defaults of the compiler plugin itself:
-  `contributes-as-inject=true` (the `@ContributesIntoMap` ViewModels and `@ContributesBinding`
-  storages of `app/shared` have no `@Inject`, so without it the compiler rejects them),
-  `enable-top-level-function-injection=true` and `generate-contribution-hints-in-fir=true`. The
-  Gradle plugin also orders Metro before the Compose compiler (`-Xcompiler-plugin-order`), which
-  only matters for `@Inject @Composable` functions; here Metro simply comes first in `plugins`.
+- **2.4.21** on the JVM and Android toolchain (`KOTLIN` in `MODULE.bazel`, used for the Compose
+  compiler plugin, `kotlin-stdlib` and `kotlin-test`);
+- **2.5.20-dev-5696** on Kotlin/Native (`KOTLIN_NATIVE` in `MODULE.bazel`, the default of
+  `kotlin_native` in rules_kotlin `c3bf80aa`; `2.4.21` remains in rules_kotlin's LLVM/libffi table
+  for `kotlin_native.version(version = "2.4.21")`, which falls back to `konanc`).
+
+Because compiler plugins execute inside the compiler of each platform, the root `BUILD.bazel`
+declares the JVM/Android plugins (`plugins` / `plugins_jvm` / `plugins_android`) alongside their
+Kotlin/Native counterparts (`plugins_native`):
+
+- `//:serialization_plugin` and `//:serialization_native_plugin` — kotlinx.serialization, bundled
+  with the JVM toolchain for 2.4.21 and fetched via `http_file` from the Kotlin dev Maven repository
+  for `2.5.20-dev-5696`;
+- `//:compose_plugin` and `//:compose_native_plugin` — the Compose compiler of 2.4.21
+  (`@maven_kotlinconf`) and of `2.5.20-dev-5696` (`http_file` from the Kotlin dev Maven repository);
+- `//:metro_plugin` and `//:metro_native_plugin` — Metro (1.6.0), with the options the Metro Gradle
+  plugin sends by default for Kotlin 2.4 where they differ from the defaults of the compiler plugin
+  itself: `contributes-as-inject=true` (the `@ContributesIntoMap` ViewModels and
+  `@ContributesBinding` storages of `app/shared` have no `@Inject`, so without it the compiler
+  rejects them), `enable-top-level-function-injection=true` and
+  `generate-contribution-hints-in-fir=true`. Metro 1.6.0 ships compatibility shims up to
+  `2.5.20-dev-4223`; `//bazel:metro_compat.bzl` (`metro_native_compiler_jar`, tested by
+  `//bazel/metro_compat/tests:adapter_test`) adapts a copy of the Metro compiler jar for the three
+  internal FIR/IR symbol moves between `2.5.20-dev-5510` and `2.5.20-dev-5696` so
+  `//:metro_native_plugin` runs inside Kotlin/Native while JVM and Android use the unmodified jar.
+  Metro comes before the Compose compiler in each platform's plugin list (`-Xcompiler-plugin-order`).
 
 ## Dependencies
 
@@ -391,7 +415,8 @@ dependency) named the same target.
 
 `//app/ui-components:ui_components` is a `kt_multiplatform_library` for `jvm`, `android`,
 `ios_arm64` and `ios_simulator_arm64` along the default KMP hierarchy, with `//:compose_plugin` in
-`plugins`, the common dependencies in `deps` and `exports`, the Ktor engines in `deps_jvm`,
+`plugins_jvm` and `plugins_android` and `//:compose_native_plugin` in `plugins_native`, the common
+dependencies in `deps` and `exports`, the Ktor engines in `deps_jvm`,
 `deps_android` and `deps_ios`, and the fragments derived from the groups and platforms listing each
 source — the `srcs` of the macro (`src/commonMain` plus the generated `UiRes` accessors and
 `expect` collectors) are the fragment `common`; `:ui_components_resources_platform_srcs` (listed in
@@ -429,8 +454,8 @@ foundation redirect).
 ### `app/shared`
 
 `//app/shared:shared` is a `kt_multiplatform_library` for `jvm`, `android`, `ios_arm64` and
-`ios_simulator_arm64` with the Metro, Compose and serialization plugins in `plugins`, the same
-shape as `ui-components`:
+`ios_simulator_arm64` with the Metro, Compose and serialization plugins in `plugins_jvm`,
+`plugins_android` and `plugins_native`, the same shape as `ui-components`:
 
 - the sources are passed along the hierarchy (`COMMON + NON_WEB` in `srcs`, `NON_ANDROID` in
   `srcs_jvm` and `srcs_native`, `IOS` in `srcs_ios`, `JVM` in `srcs_jvm`, `ANDROID` in

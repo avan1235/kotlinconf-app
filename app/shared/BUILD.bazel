@@ -82,12 +82,19 @@ JVM_DEPS = [
     ]
 ]
 
-# The compiler plugins of every platform compilation (the `plugins` of the macro). Metro goes first:
-# the Metro Gradle plugin orders it before the Compose compiler (-Xcompiler-plugin-order).
-SHARED_PLUGINS = [
+# The compiler plugins of every platform compilation: Metro goes first (the Metro Gradle plugin
+# orders it before the Compose compiler with -Xcompiler-plugin-order), followed by the Compose and
+# kotlinx.serialization plugins of the platform's Kotlin compiler release.
+JVM_PLUGINS = [
     "//:metro_plugin",
     "//:compose_plugin",
     "//:serialization_plugin",
+]
+
+NATIVE_PLUGINS = [
+    "//:metro_native_plugin",
+    "//:compose_native_plugin",
+    "//:serialization_native_plugin",
 ]
 
 # The `app_version` string of the About screen, "<version> (<build>)", from //:version.bzl: a
@@ -184,7 +191,9 @@ kt_multiplatform_library(
         "ios_arm64",
         "ios_simulator_arm64",
     ],
-    plugins = SHARED_PLUGINS,
+    plugins_android = JVM_PLUGINS,
+    plugins_jvm = JVM_PLUGINS,
+    plugins_native = NATIVE_PLUGINS,
     srcs_android = ANDROID + [":shared_resources_platform_srcs"],
     srcs_ios = IOS,
     srcs_jvm = NON_ANDROID + JVM + [":shared_resources_platform_srcs"],

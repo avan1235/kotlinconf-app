@@ -15,9 +15,9 @@ module(name = "kotlinconf_app")
 bazel_dep(name = "rules_kotlin", version = "2.2.0")
 archive_override(
     module_name = "rules_kotlin",
-    urls = ["https://github.com/JetBrains/rules_kotlin/archive/5c535ad361df351f4c08626254cf0c07bf398df2.tar.gz"],
-    strip_prefix = "rules_kotlin-5c535ad361df351f4c08626254cf0c07bf398df2",
-    integrity = "sha256-AdvzN0iREHHAce99qA2iNxq56Iko6OapHOg3S90J2AM=",
+    urls = ["https://github.com/JetBrains/rules_kotlin/archive/c3bf80aa56e2800db09770fa72604ecd414b08c9.tar.gz"],
+    strip_prefix = "rules_kotlin-c3bf80aa56e2800db09770fa72604ecd414b08c9",
+    integrity = "sha256-TD+cgusKJZuIPKovBnaMgzlTjy5tRWlVI/Uq6qDltlY=",
 )
 
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
@@ -55,12 +55,10 @@ bazel_dep(name = "rules_go", version = "0.60.0")
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
 go_sdk.download(version = "1.27.0")
 
-# The Kotlin compiler is the release rules_kotlin pins (Kotlin 2.4.21, the one of the app): the
-# Compose compiler plugin and the stdlib below, and the Kotlin/Native distribution, are the ones of
-# that release. It is the only release the rules support for Kotlin/Native (they pin the LLVM and
-# the link dependencies of the framework per release, and `kotlin_native.version` of another release
-# fails fast against that table), so another Kotlin release is a change of rules_kotlin first, then
-# of this constant.
+# The JVM and Android Kotlin compiler is the release rules_kotlin pins on its JVM toolchain
+# (Kotlin 2.4.21, the one of the app): the Compose compiler plugin and the stdlib below are the ones
+# of that release. Kotlin/Native is pinned separately by rules_kotlin to a 2.5.20-dev build for the
+# Kotlin/Native Build Tools API (see KOTLIN_NATIVE below).
 KOTLIN = "2.4.21"
 
 # The Kotlin toolchain of the modules: JVM 11 bytecode (see BUILD.bazel), before the default one.
@@ -115,6 +113,29 @@ kotlin_native.targets(targets = [
     "ios_simulator_arm64",
 ])
 
+# Kotlin/Native is pinned apart from the JVM compiler in rules_kotlin, to 2.5.20-dev-5696 (which
+# compiles klibs through the Kotlin Build Tools API). Compiler plugins of a Kotlin/Native
+# compilation run in that compiler, so their jars come from the matching Kotlin dev build.
+KOTLIN_NATIVE = "2.5.20-dev-5696"
+
+KOTLIN_DEV_MAVEN = "https://redirector.kotlinlang.org/maven/dev/org/jetbrains/kotlin"
+
+http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
+
+http_file(
+    name = "kotlin_native_serialization_plugin",
+    downloaded_file_path = "kotlin-serialization-compiler-plugin-embeddable-" + KOTLIN_NATIVE + ".jar",
+    sha256 = "6ffc57e2933106deed266a2ac3938010345115fd40f42fe46d62d10697c4b659",
+    urls = [KOTLIN_DEV_MAVEN + "/kotlin-serialization-compiler-plugin-embeddable/" + KOTLIN_NATIVE + "/kotlin-serialization-compiler-plugin-embeddable-" + KOTLIN_NATIVE + ".jar"],
+)
+
+http_file(
+    name = "kotlin_native_compose_plugin",
+    downloaded_file_path = "kotlin-compose-compiler-plugin-embeddable-" + KOTLIN_NATIVE + ".jar",
+    sha256 = "651ac62f696639f4b8b0ce9d95f381d08383ed44bf00d7279d7cdd1a7c86660d",
+    urls = [KOTLIN_DEV_MAVEN + "/kotlin-compose-compiler-plugin-embeddable/" + KOTLIN_NATIVE + "/kotlin-compose-compiler-plugin-embeddable-" + KOTLIN_NATIVE + ".jar"],
+)
+
 # The JVM-only libraries: the compiler plugins the Kotlin rules run (the Compose compiler of the
 # Kotlin release and the Metro compiler), the backend server stack (//backend), the JVM variants of
 # the Compose libraries the desktop app and the tests of //bazel/compose_resources run with, and the
@@ -140,7 +161,7 @@ COIL = "3.6.3"
 
 LIFECYCLE = "2.11.0"
 
-METRO = "1.4.0"
+METRO = "1.6.0"
 
 SETTINGS = "1.3.0"
 

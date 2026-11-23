@@ -4,7 +4,7 @@
     "ch.qos.logback:logback-classic": -298868467,
     "com.h2database:h2": 2037113602,
     "com.zaxxer:HikariCP": 173962819,
-    "dev.zacsweers.metro:compiler": 1309853809,
+    "dev.zacsweers.metro:compiler": 2010918387,
     "io.insert-koin:koin-core-jvm": -1682445744,
     "io.insert-koin:koin-ktor-jvm": 1628340547,
     "io.insert-koin:koin-logger-slf4j": 1362467901,
@@ -72,7 +72,7 @@
     "com.squareup.okio:okio-jvm": 273505707,
     "com.typesafe:config": 163723576,
     "com.zaxxer:HikariCP": 2026766975,
-    "dev.zacsweers.metro:compiler": -1963625239,
+    "dev.zacsweers.metro:compiler": 1238588426,
     "io.insert-koin:koin-core-jvm": -1879848985,
     "io.insert-koin:koin-ktor-jvm": 61114246,
     "io.insert-koin:koin-logger-slf4j": -1271195220,
@@ -382,9 +382,9 @@
     },
     "dev.zacsweers.metro:compiler": {
       "shasums": {
-        "jar": "41ff9064307300c9ab07ad7f17b1b92bd66335472642d83134ad4a3eb54e2c79"
+        "jar": "2045042c4f1e7d1c9905bf269832af884d565d8f32468ddd8a9fddf218e54a6d"
       },
-      "version": "1.4.0"
+      "version": "1.6.0"
     },
     "io.insert-koin:koin-core-jvm": {
       "shasums": {
@@ -2368,6 +2368,7 @@
       "com.zaxxer.hikari.util"
     ],
     "dev.zacsweers.metro:compiler": [
+      "_COROUTINE",
       "com.github.ajalt.colormath",
       "com.github.ajalt.colormath.internal",
       "com.github.ajalt.colormath.model",
@@ -2380,21 +2381,28 @@
       "dev.zacsweers.metro.compiler.compat.k2320",
       "dev.zacsweers.metro.compiler.compat.k240",
       "dev.zacsweers.metro.compiler.compat.k240_dev_2124",
-      "dev.zacsweers.metro.compiler.compat.k2420_beta1",
-      "dev.zacsweers.metro.compiler.compat.k2420_beta2",
+      "dev.zacsweers.metro.compiler.compat.k2420",
       "dev.zacsweers.metro.compiler.compat.k2420_dev_6138",
-      "dev.zacsweers.metro.compiler.compat.k250_dev_498",
+      "dev.zacsweers.metro.compiler.compat.k250_dev_10106",
+      "dev.zacsweers.metro.compiler.compat.k250_dev_6460",
+      "dev.zacsweers.metro.compiler.compat.k250_dev_7307",
+      "dev.zacsweers.metro.compiler.compat.k2520_dev_4223",
       "dev.zacsweers.metro.compiler.diagnostics",
       "dev.zacsweers.metro.compiler.diagnostics.render",
       "dev.zacsweers.metro.compiler.fir",
       "dev.zacsweers.metro.compiler.fir.checkers",
       "dev.zacsweers.metro.compiler.fir.generators",
       "dev.zacsweers.metro.compiler.graph",
+      "dev.zacsweers.metro.compiler.graph.explanation",
+      "dev.zacsweers.metro.compiler.graph.identity",
+      "dev.zacsweers.metro.compiler.graph.reporting",
       "dev.zacsweers.metro.compiler.hilt",
+      "dev.zacsweers.metro.compiler.internal",
       "dev.zacsweers.metro.compiler.ir",
       "dev.zacsweers.metro.compiler.ir.cache",
       "dev.zacsweers.metro.compiler.ir.graph",
       "dev.zacsweers.metro.compiler.ir.graph.expressions",
+      "dev.zacsweers.metro.compiler.ir.graph.reporting",
       "dev.zacsweers.metro.compiler.ir.graph.sharding",
       "dev.zacsweers.metro.compiler.ir.parameters",
       "dev.zacsweers.metro.compiler.ir.transformers",
@@ -2422,12 +2430,20 @@
       "dev.zacsweers.metro.compiler.shaded.kotlinx.serialization.json.internal",
       "dev.zacsweers.metro.compiler.shaded.kotlinx.serialization.modules",
       "dev.zacsweers.metro.compiler.shaded.metro",
+      "dev.zacsweers.metro.compiler.shaded.metro.gradle.analysis",
+      "dev.zacsweers.metro.compiler.shaded.metro.graph",
       "dev.zacsweers.metro.compiler.shaded.metro.internal",
       "dev.zacsweers.metro.compiler.shaded.okio",
       "dev.zacsweers.metro.compiler.shaded.okio.internal",
       "dev.zacsweers.metro.compiler.symbols",
       "dev.zacsweers.metro.compiler.tracing",
       "kotlinx.coroutines",
+      "kotlinx.coroutines.channels",
+      "kotlinx.coroutines.internal",
+      "kotlinx.coroutines.intrinsics",
+      "kotlinx.coroutines.scheduling",
+      "kotlinx.coroutines.selects",
+      "kotlinx.coroutines.sync",
       "metro.hints"
     ],
     "io.insert-koin:koin-core-jvm": [
@@ -3860,6 +3876,7 @@
     "dev.zacsweers.metro:compiler": {
       "dev.zacsweers.metro.compiler.api.fir.MetroContributionExtension$Factory": [
         "dev.zacsweers.metro.compiler.circuit.CircuitContributionExtension$Factory",
+        "dev.zacsweers.metro.compiler.circuit.CircuitSerializableContributionExtension$Factory",
         "dev.zacsweers.metro.compiler.hilt.HiltContributionExtension$Factory"
       ],
       "dev.zacsweers.metro.compiler.api.fir.MetroContributionHintExtension$Factory": [
@@ -3867,6 +3884,7 @@
       ],
       "dev.zacsweers.metro.compiler.api.fir.MetroFirDeclarationGenerationExtension$Factory": [
         "dev.zacsweers.metro.compiler.circuit.CircuitFirExtension$Factory",
+        "dev.zacsweers.metro.compiler.circuit.CircuitSerializableFirExtension$Factory",
         "dev.zacsweers.metro.compiler.hilt.HiltFirDeclarationExtension$Factory"
       ],
       "dev.zacsweers.metro.compiler.api.ir.MetroIrContributionExtension$Factory": [
@@ -3877,10 +3895,12 @@
         "dev.zacsweers.metro.compiler.compat.k2320.CompatContextImpl$Factory",
         "dev.zacsweers.metro.compiler.compat.k240.CompatContextImpl$Factory",
         "dev.zacsweers.metro.compiler.compat.k240_dev_2124.CompatContextImpl$Factory",
-        "dev.zacsweers.metro.compiler.compat.k2420_beta1.CompatContextImpl$Factory",
-        "dev.zacsweers.metro.compiler.compat.k2420_beta2.CompatContextImpl$Factory",
+        "dev.zacsweers.metro.compiler.compat.k2420.CompatContextImpl$Factory",
         "dev.zacsweers.metro.compiler.compat.k2420_dev_6138.CompatContextImpl$Factory",
-        "dev.zacsweers.metro.compiler.compat.k250_dev_498.CompatContextImpl$Factory"
+        "dev.zacsweers.metro.compiler.compat.k250_dev_10106.CompatContextImpl$Factory",
+        "dev.zacsweers.metro.compiler.compat.k250_dev_6460.CompatContextImpl$Factory",
+        "dev.zacsweers.metro.compiler.compat.k250_dev_7307.CompatContextImpl$Factory",
+        "dev.zacsweers.metro.compiler.compat.k2520_dev_4223.CompatContextImpl$Factory"
       ],
       "org.jetbrains.kotlin.compiler.plugin.CommandLineProcessor": [
         "dev.zacsweers.metro.compiler.MetroCommandLineProcessor"

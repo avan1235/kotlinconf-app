@@ -1,0 +1,30 @@
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_binary", "kt_jvm_library")
+
+# Compile-only stubs matching the Kotlin 2.5.20-dev-5696 compiler signatures that the shims below
+# delegate to at compile time inside Kotlin/Native.
+kt_jvm_library(
+    name = "stubs",
+    srcs = glob(["stubs/*.kt"]),
+    neverlink = True,
+)
+
+# The delegate shims bundled into the adapted Metro native compiler plugin jar.
+kt_jvm_library(
+    name = "shims_lib",
+    srcs = glob(["shims/*.kt"]),
+    visibility = ["//visibility:public"],
+    deps = [":stubs"],
+)
+
+kt_jvm_library(
+    name = "adapter_lib",
+    srcs = glob(["src/**/*.kt"]),
+    visibility = ["//bazel/metro_compat:__subpackages__"],
+)
+
+kt_jvm_binary(
+    name = "adapter",
+    main_class = "org.jetbrains.kotlinconf.bazel.metrocompat.MainKt",
+    visibility = ["//visibility:public"],
+    runtime_deps = [":adapter_lib"],
+)

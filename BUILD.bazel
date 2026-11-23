@@ -1,4 +1,6 @@
 load("@rules_kotlin//kotlin:core.bzl", "define_kt_toolchain", "kt_compiler_plugin")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_import")
+load("//bazel:metro_compat.bzl", "metro_native_compiler_jar")
 
 # The Kotlin toolchain: JVM 11 bytecode (the jvmTarget of the modules), with the language and API
 # versions of the Kotlin release of rules_kotlin (2.4.21, the one of the app). Every JVM and Android
@@ -26,7 +28,8 @@ platform(
 # The compiler plugins of the modules, for the `plugins` of the Kotlin rules: the Kotlin/Native rules
 # pass them to the compiler as -Xplugin, the JVM and Android ones as plugins of the builder.
 
-# org.jetbrains.kotlin.plugin.serialization: the plugin of the Kotlin release of the toolchain.
+# org.jetbrains.kotlin.plugin.serialization: the plugin of the Kotlin release of the toolchain, and
+# the one of the Kotlin/Native release (see MODULE.bazel).
 kt_compiler_plugin(
     name = "serialization_plugin",
     compile_phase = True,
@@ -38,7 +41,22 @@ kt_compiler_plugin(
     ],
 )
 
-# org.jetbrains.kotlin.plugin.compose: the Compose compiler of the Kotlin release (see MODULE.bazel).
+kt_jvm_import(
+    name = "serialization_native_plugin_jar",
+    jars = ["@kotlin_native_serialization_plugin//file"],
+)
+
+kt_compiler_plugin(
+    name = "serialization_native_plugin",
+    compile_phase = True,
+    id = "org.jetbrains.kotlin.serialization",
+    target_embedded_compiler = True,
+    visibility = ["//visibility:public"],
+    deps = [":serialization_native_plugin_jar"],
+)
+
+# org.jetbrains.kotlin.plugin.compose: the Compose compiler of the Kotlin release, and the one of
+# the Kotlin/Native release (see MODULE.bazel).
 kt_compiler_plugin(
     name = "compose_plugin",
     id = "androidx.compose.compiler.plugins.kotlin",
@@ -47,6 +65,19 @@ kt_compiler_plugin(
     deps = [
         "@maven_kotlinconf//:org_jetbrains_kotlin_kotlin_compose_compiler_plugin_embeddable",
     ],
+)
+
+kt_jvm_import(
+    name = "compose_native_plugin_jar",
+    jars = ["@kotlin_native_compose_plugin//file"],
+)
+
+kt_compiler_plugin(
+    name = "compose_native_plugin",
+    id = "androidx.compose.compiler.plugins.kotlin",
+    target_embedded_compiler = True,
+    visibility = ["//visibility:public"],
+    deps = [":compose_native_plugin_jar"],
 )
 
 # dev.zacsweers.metro: the dependency injection compiler plugin of //app/shared and the apps. The
@@ -69,4 +100,24 @@ kt_compiler_plugin(
     deps = [
         "@maven_kotlinconf//:dev_zacsweers_metro_compiler",
     ],
+)
+
+metro_native_compiler_jar(
+    name = "metro_native_plugin_jar",
+    src = "@maven_kotlinconf//:dev_zacsweers_metro_compiler",
+)
+
+kt_compiler_plugin(
+    name = "metro_native_plugin",
+    compile_phase = True,
+    id = "dev.zacsweers.metro.compiler",
+    options = {
+        "enabled": ["true"],
+        "contributes-as-inject": ["true"],
+        "enable-top-level-function-injection": ["true"],
+        "generate-contribution-hints-in-fir": ["true"],
+    },
+    target_embedded_compiler = True,
+    visibility = ["//visibility:public"],
+    deps = [":metro_native_plugin_jar"],
 )

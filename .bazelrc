@@ -41,6 +41,11 @@ common:linux --deleted_packages=app/iosApp
 # from the APK).
 build --merge_android_manifest_permissions
 
+# Compile JVM and Android targets through the Kotlin Build Tools API (Kotlin/Native klibs compile
+# through the Build Tools API by default in rules_kotlin; pass
+# --@rules_kotlin//kotlin/settings:experimental_native_build_tools_api=false to fall back to konanc).
+build --@rules_kotlin//kotlin/settings:experimental_build_tools_api=true
+
 # Every kt_native_library also writes a header klib (its declarations without function bodies), and
 # the Kotlin/Native compilations of its dependents read it instead of the full klib, so an edit that
 # keeps the declarations does not recompile them; the links still read the full klibs (see

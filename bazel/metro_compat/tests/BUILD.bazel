@@ -1,0 +1,26 @@
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_test")
+
+# Tests //bazel:metro_compat.bzl's adapter on the pinned Metro compiler jar and shims jar.
+kt_jvm_test(
+    name = "adapter_test",
+    size = "small",
+    timeout = "short",
+    srcs = ["MetroCompatTest.kt"],
+    data = [
+        "//bazel/metro_compat:shims_lib.jar",
+        "@maven_kotlinconf//:dev_zacsweers_metro_compiler",
+    ],
+    jvm_flags = [
+        "-Dmetro.jar=$(rootpath @maven_kotlinconf//:dev_zacsweers_metro_compiler)",
+        "-Dshims.jar=$(rootpath //bazel/metro_compat:shims_lib.jar)",
+    ],
+    test_class = "org.jetbrains.kotlinconf.bazel.metrocompat.tests.MetroCompatTest",
+    deps = ["//bazel/metro_compat:adapter_lib"] + [
+        "@maven_kotlinconf//:" + name
+        for name in [
+            "junit_junit",
+            "org_jetbrains_kotlin_kotlin_test",
+            "org_jetbrains_kotlin_kotlin_test_junit",
+        ]
+    ],
+)
