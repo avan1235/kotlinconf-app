@@ -58,7 +58,7 @@ built, see [Unsupported](#unsupported).
 
 `MODULE.bazel` takes rules_kotlin, with its Kotlin Multiplatform rules and the `kmp_maven`
 extension, from a commit of the `kmp` branch of
-[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`c3bf80aa`), the
+[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`81e7457e`), the
 way the README of rules_kotlin installs an unreleased revision ("From HEAD (Bzlmod)"):
 
 ```starlark
@@ -86,7 +86,7 @@ Every Kotlin compilation in the workspace runs through the Kotlin Build Tools AP
   the JVM and Android `KotlinCompile` multiplex worker from `K2JVMCompiler` to
   `JvmCompilationOperation` (`kotlin-build-tools-impl` + `kotlin-compiler-embeddable` +
   `jvm-abi-gen` in a cached isolated classloader).
-- `experimental_native_build_tools_api` is on by default in rules_kotlin (`c3bf80aa`): every
+- `experimental_native_build_tools_api` is on by default in rules_kotlin (`81e7457e`): every
   `kt_native_library` compiles its `.klib` (and `.header.klib`) through
   `NativeKlibCompilationOperation` in-process on Kotlin/Native `2.5.20-dev-5696` (`konan_launcher`
   with `SharedApiClassesClassLoader`, producing byte-identical klibs to `konanc`; pass
@@ -189,7 +189,10 @@ bazel run //app/shared:shared.fragments                       # its derived K2 f
 ```
 
 The alias of a module (`//core`) selects the variant of its consumer: the klib under a
-Kotlin/Native rule, the Android library on an Android platform, the JVM library otherwise.
+Kotlin/Native rule, the Android library on an Android platform, the JVM library otherwise. It
+selects the klib on `@rules_kotlin//kotlin/native/platforms:native`, so a Kotlin/Native consumer
+for a konan target the module does not list finds the klib incompatible (and `//...` skips it)
+instead of getting the JVM library and failing on a missing `JavaInfo`.
 `<name>.fragments` (`//core:core.fragments`, `//app/ui-components:ui_components.fragments`,
 `//app/shared:shared.fragments`) prints the derived fragments, their `refines` edges, their
 `platforms` and their `srcs` without compiling or fetching platform toolchains.
@@ -337,7 +340,7 @@ reached a stable Kotlin release yet:
 - **2.4.21** on the JVM and Android toolchain (`KOTLIN` in `MODULE.bazel`, used for the Compose
   compiler plugin, `kotlin-stdlib` and `kotlin-test`);
 - **2.5.20-dev-5696** on Kotlin/Native (`KOTLIN_NATIVE` in `MODULE.bazel`, the default of
-  `kotlin_native` in rules_kotlin `c3bf80aa`; `2.4.21` remains in rules_kotlin's LLVM/libffi table
+  `kotlin_native` in rules_kotlin `81e7457e`; `2.4.21` remains in rules_kotlin's LLVM/libffi table
   for `kotlin_native.version(version = "2.4.21")`, which falls back to `konanc`).
 
 Because compiler plugins execute inside the compiler of each platform, the root `BUILD.bazel`
