@@ -13,7 +13,7 @@ built, see [Unsupported](#unsupported).
 | `core`              | `//core` (alias), `//core:core_jvm`, `//core:core_android`, `//core:core_native`, `//core:core.fragments` | JVM, Android and iOS build |
 | `backend`           | `//backend` (server, `bazel run`), `//backend:backend_deploy.jar` (runnable jar), `//backend:tests` (9 test classes) | builds, runs, tests pass |
 | `app/ui-components` | `//app/ui-components:ui_components` (alias), `:ui_components_jvm`, `:ui_components_android`, `:ui_components_native`, `:ui_components.fragments`, `:ui_components_resources` (the `UiRes` resources) | JVM, Android and iOS (`ios_arm64`, `ios_simulator_arm64`) libraries build |
-| `app/shared`        | `//app/shared` (alias), `//app/shared:shared_jvm`, `:shared_android`, `:shared_native`, `:shared.fragments`, `:shared_resources` (the `Res` resources), `//app/shared:tests` (2 test classes) | JVM, Android and iOS libraries build, JVM tests pass |
+| `app/shared`        | `//app/shared` (alias), `//app/shared:shared_jvm`, `:shared_android`, `:shared_native`, `:shared.fragments`, `:shared_resources` (the `Res` resources), `//app/shared:tests` (`kt_multiplatform_test`: `:tests_jvm`, `:tests_android`) | JVM, Android and iOS libraries build, JVM tests pass (the Android one is skipped) |
 | `app/desktopApp`    | `//app/desktopApp` (the `kt_jvm_binary`, `bazel run`), `:desktop_lib`, `:desktop_resources` | builds and runs on macOS arm64 |
 | `app/androidApp`    | `//app/androidApp` (the debug APK; `bazel mobile-install //app/androidApp` installs it incrementally), `:android_lib`, `:google_services` | APK builds, debug-signed; installs and runs on an emulator with `mobile-install` too |
 | `app/iosApp`        | `//app/iosApp:KotlinConf` (the app, an `ios_application` of rules_apple), `:shared` (the Kotlin/Native framework), `:compose-resources`, `:ipa_test`, `:xcodeproj` | builds an IPA for the arm64 simulator and runs there; device build needs a provisioning profile |
@@ -59,7 +59,7 @@ built, see [Unsupported](#unsupported).
 
 `MODULE.bazel` takes rules_kotlin, with its Kotlin Multiplatform rules and the `kmp_maven`
 extension, from a commit of the `kmp` branch of
-[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`262e0f73`), the
+[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`4837d476`), the
 way the README of rules_kotlin installs an unreleased revision ("From HEAD (Bzlmod)"):
 
 ```starlark
@@ -87,7 +87,7 @@ Every Kotlin compilation in the workspace runs through the Kotlin Build Tools AP
   the JVM and Android `KotlinCompile` multiplex worker from `K2JVMCompiler` to
   `JvmCompilationOperation` (`kotlin-build-tools-impl` + `kotlin-compiler-embeddable` +
   `jvm-abi-gen` in a cached isolated classloader).
-- `experimental_native_build_tools_api` is on by default in rules_kotlin (`262e0f73`): every
+- `experimental_native_build_tools_api` is on by default in rules_kotlin (`4837d476`): every
   `kt_native_library` compiles its `.klib` (and `.header.klib`) through
   `NativeKlibCompilationOperation` in-process on Kotlin/Native `2.5.20-dev-5696` (`konan_launcher`
   with `SharedApiClassesClassLoader`, producing byte-identical klibs to `konanc`; pass
@@ -346,7 +346,7 @@ reached a stable Kotlin release yet:
 - **2.4.21** on the JVM and Android toolchain (`KOTLIN` in `MODULE.bazel`, used for the Compose
   compiler plugin, `kotlin-stdlib` and `kotlin-test`);
 - **2.5.20-dev-5696** on Kotlin/Native (`KOTLIN_NATIVE` in `MODULE.bazel`, the default of
-  `kotlin_native` in rules_kotlin `262e0f73`; `2.4.21` remains in rules_kotlin's LLVM/libffi table
+  `kotlin_native` in rules_kotlin `4837d476`; `2.4.21` remains in rules_kotlin's LLVM/libffi table
   for `kotlin_native.version(version = "2.4.21")`, which falls back to `konanc`).
 
 Because compiler plugins execute inside the compiler of each platform, the root `BUILD.bazel`
@@ -504,11 +504,17 @@ Metro generates the graphs of the platforms (`JvmAppGraph`, `IosAppGraph`; the A
 `app/androidApp`) and the `metro.hints` of the contributions, which the Android app's graph will
 aggregate from the library.
 
-The JVM tests are the Gradle `jvmTest` run: one `kt_jvm_test` per class of `src/commonTest`
-(`ApplicationStorageImplMigrationTest`, 6 tests) and `src/jvmTest` (`OkioAssetStorageTest`, 4
-tests), on kotlin.test over JUnit 4, with `multiplatform-settings-test` and
-`kotlinx-coroutines-test`; each is an associate of `shared_jvm`, so it sees its `internal`
-declarations as the Gradle test source sets do.
+The tests are a `kt_multiplatform_test` for `jvm` and `android`: `src/commonTest`
+(`ApplicationStorageImplMigrationTest`, 6 tests) for both and `src/jvmTest` (`OkioAssetStorageTest`,
+4 tests) in `srcs_jvm`, on kotlin.test over JUnit 4, with `multiplatform-settings-test` and
+`kotlinx-coroutines-test`. `tests_jvm` (a `kt_jvm_test`, the Gradle `jvmTest` run, 10 tests) and
+`tests_android` (a `kt_android_local_test`) are associates of `shared_jvm` and `shared_android`, so
+they see their `internal` declarations as the Gradle test source sets do, and each runs the test
+classes of its own jar through the suite of rules_kotlin. `tests_android` is skipped: a local test
+builds for the host, where `shared_android` is incompatible (`target_compatible_with` Android) and
+the `@kmp_maven` aliases would select the JVM variants anyway, and for `--platforms=//:arm64-v8a`
+no Java runtime toolchain matches, so it cannot run until rules_kotlin builds its associate for an
+Android platform.
 
 ```shell
 bazel build //app/shared:shared_jvm
