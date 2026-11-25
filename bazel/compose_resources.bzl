@@ -18,6 +18,7 @@ build time (the generated code is not committed), with a fixed set of output sou
 
     compose_resources(
         name = "shared_resources",
+        actual_srcs = ["android", "non_android"],
         package = "org.jetbrains.kotlinconf.generated.resources",
         resources_dir = "src/commonMain/composeResources",
         srcs = glob(["src/commonMain/composeResources/**"]),
@@ -31,10 +32,13 @@ declares:
   fragment), or every source of a JVM-only module (`ResourceCollectors.kt` instead of the expect
   ones), for `srcs` of kt_jvm_library;
 - `shared_resources_platform_srcs` (multiplatform only): `ActualResourceCollectors.kt`, the same
-  `actual` file for every platform. Listed in `srcs_android`, `srcs_jvm` and `srcs_native` (or in
-  the `srcs_<qualifier>` of the groups and platforms below `common`), it forms a fragment of its
-  own (`android-jvm-native`) refining `common`, so the `actual` collectors stay below the `expect`
-  ones of `common` (or in the platform leaf of a single-platform library);
+  `actual` file for every platform, for a single `srcs_<qualifier>` below `common` (such as the
+  platform leaf of a single-platform library);
+- `shared_resources_<qualifier>_srcs` for each `actual_srcs` entry (multiplatform only): distinct
+  filegroup labels over `ActualResourceCollectors.kt`, for disjoint `srcs_<qualifier>` lists that
+  partition a library's platforms below `common` (e.g. `srcs_android` and `srcs_non_android`, as
+  `kt_multiplatform_library` rejects sharing a source label across incomparable qualifiers while
+  `common` already holds `ExpectResourceCollectors.kt`);
 - `shared_resources_jar`: the resource tree as a jar, for `resource_jars` of the JVM library;
 - `shared_resources_files`: the resource tree as files, under `<name>/resources/`, for the Android
   assets (`assets = [":shared_resources_files"], assets_dir = "shared_resources/resources"`).
@@ -267,13 +271,15 @@ def compose_resources(
         public = False,
         source_set = "commonMain",
         multiplatform = True,
+        actual_srcs = [],
         visibility = None,
         **kwargs):
     """Declares the Compose resources of a module: the rule and the filegroups of its outputs (see the module doc).
 
     Args:
       name: the name of the rule; the filegroups are `<name>_common_srcs`, `<name>_platform_srcs`
-        (multiplatform only), `<name>_jar` and `<name>_files`.
+        (multiplatform only), `<name>_<qualifier>_srcs` for each `actual_srcs` entry, `<name>_jar`
+        and `<name>_files`.
       package: the package of the Res class and of the resources, Gradle's `packageOfResClass`.
       resources_dir: the composeResources directory, relative to the package, e.g. `src/commonMain/composeResources`.
       srcs: the files of that directory, e.g. `glob(["src/commonMain/composeResources/**"])`.
@@ -281,9 +287,22 @@ def compose_resources(
       public: whether the Res class and the accessors are public, Gradle's `publicResClass`.
       source_set: the name of the Gradle source set of the resources, e.g. `main` for a JVM-only module.
       multiplatform: False for a JVM-only module, whose collectors are plain declarations.
+      actual_srcs: qualifier names for per-qualifier filegroups `<name>_<qualifier>_srcs` over
+        `platform_srcs` (`multiplatform = True` only), so disjoint `srcs_<qualifier>` lists that
+        partition a library's platforms have distinct source labels.
       visibility: the visibility of the targets.
       **kwargs: more attributes common to every rule, e.g. `tags` or `testonly`.
     """
+    if actual_srcs and not multiplatform:
+        fail("compose_resources %s: actual_srcs requires multiplatform = True" % name)
+    seen_qualifiers = {}
+    for qualifier in actual_srcs:
+        if qualifier in ("common", "platform", "files", "jar"):
+            fail("compose_resources %s: invalid actual_srcs qualifier %r" % (name, qualifier))
+        if qualifier in seen_qualifiers:
+            fail("compose_resources %s: duplicate actual_srcs qualifier %r" % (name, qualifier))
+        seen_qualifiers[qualifier] = True
+
     _compose_resources(
         name = name,
         package = package,
@@ -302,6 +321,14 @@ def compose_resources(
             name = "%s_%s" % (name, output_group),
             srcs = [":" + name],
             output_group = output_group,
+            visibility = visibility,
+            **kwargs
+        )
+    for qualifier in actual_srcs:
+        native.filegroup(
+            name = "%s_%s_srcs" % (name, qualifier),
+            srcs = [":" + name],
+            output_group = "platform_srcs",
             visibility = visibility,
             **kwargs
         )

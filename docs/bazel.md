@@ -23,11 +23,12 @@ built, see [Unsupported](#unsupported).
 - Bazel 9.3.1 ([Bazelisk](https://github.com/bazelbuild/bazelisk) reads `.bazelversion`).
 - Nothing to check out besides the app: Bazel fetches rules_kotlin itself, from the commit of the
   `kmp` branch that `MODULE.bazel` pins (see [rules_kotlin](#rules_kotlin)). That commit has the rules
-  this migration needs: `kt_multiplatform_library` along the default KMP hierarchy (`platforms`, common
-  `srcs`/`deps`/`exports`/`plugins` and `<attr>_<group or platform>` lists concatenated down each
-  platform's lineage, with K2 fragments derived from the groups and platforms listing each source; a
-  fragment has no deps, and the dexing aspect of `android_binary` and the mobile-install of
-  rules_android follow each platform library's `deps`), the
+  this migration needs: `kt_multiplatform_library` along the default KMP hierarchy and named
+  platform-set `aliases` (`platforms`, `aliases`, common `srcs`/`deps`/`exports`/`plugins` and
+  `<attr>_<group, alias or platform>` lists inherited by each covered platform, with K2 fragments
+  declared per targeted group and alias and refined by platform inclusion; a fragment has no deps,
+  and the dexing aspect of `android_binary` and the mobile-install of rules_android follow each
+  platform library's `deps`), the
   Kotlin/Native link dependencies pinned per release,
   `kt_native_framework.transitive_exports`, and the `kmp_maven` fixes (including
   `extra_dependencies`, dependency-only redirects and variant target naming).
@@ -58,7 +59,7 @@ built, see [Unsupported](#unsupported).
 
 `MODULE.bazel` takes rules_kotlin, with its Kotlin Multiplatform rules and the `kmp_maven`
 extension, from a commit of the `kmp` branch of
-[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`81e7457e`), the
+[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`262e0f73`), the
 way the README of rules_kotlin installs an unreleased revision ("From HEAD (Bzlmod)"):
 
 ```starlark
@@ -86,7 +87,7 @@ Every Kotlin compilation in the workspace runs through the Kotlin Build Tools AP
   the JVM and Android `KotlinCompile` multiplex worker from `K2JVMCompiler` to
   `JvmCompilationOperation` (`kotlin-build-tools-impl` + `kotlin-compiler-embeddable` +
   `jvm-abi-gen` in a cached isolated classloader).
-- `experimental_native_build_tools_api` is on by default in rules_kotlin (`81e7457e`): every
+- `experimental_native_build_tools_api` is on by default in rules_kotlin (`262e0f73`): every
   `kt_native_library` compiles its `.klib` (and `.header.klib`) through
   `NativeKlibCompilationOperation` in-process on Kotlin/Native `2.5.20-dev-5696` (`konan_launcher`
   with `SharedApiClassesClassLoader`, producing byte-identical klibs to `konanc`; pass
@@ -298,8 +299,9 @@ bazel test //bazel/compose_resources/tests:tests         # the generator and the
 ```
 
 A `compose_resources(name, package, resources_dir, srcs, res_class, public, source_set,
-multiplatform)` target (Gradle's `packageOfResClass`, `nameOfResClass`, `publicResClass`) has a
-fixed set of outputs, so the Kotlin rules take them as sources without knowing the resources:
+multiplatform, actual_srcs)` target (Gradle's `packageOfResClass`, `nameOfResClass`,
+`publicResClass`) has a fixed set of outputs, so the Kotlin rules take them as sources without
+knowing the resources:
 
 - `<name>_common_srcs` — `<Res>.kt`, one accessor file per resource type
   (`Drawable.<sourceSet>.kt`, `String.<sourceSet>.kt`, `StringArray...`, `Plurals...`, `Font...`)
@@ -307,7 +309,9 @@ fixed set of outputs, so the Kotlin rules take them as sources without knowing t
   (`multiplatform = True`, the default), `ResourceCollectors.kt` with plain declarations in a
   JVM-only one like the desktop app (`multiplatform = False`, `source_set = "main"`);
 - `<name>_platform_srcs` (multiplatform only) — `ActualResourceCollectors.kt`, the same `actual`
-  declarations for every platform;
+  declarations for every platform, and `<name>_<qualifier>_srcs` for each `actual_srcs` entry —
+  distinct filegroup labels over `ActualResourceCollectors.kt` when a module partitions its
+  platforms below `common` across disjoint qualifiers;
 - `<name>_jar` — the prepared tree as a jar, for `resource_jars` of the JVM library;
 - `<name>_files` — the prepared tree as files under `<name>/resources/`, for the Android assets
   (`assets = [":<name>_files"], assets_dir = "<name>/resources"`);
@@ -321,12 +325,14 @@ the XML files of the `values*` directories become `<name>.<sourceSet>.cvr` files
 accessors address by byte offset, every other file is copied. The wiring of a multiplatform module
 lists `<name>_common_srcs` (the `Res` class, the accessors and the `expect` collectors) in the
 `srcs` of the macro (the `common` fragment), `components-resources` in its `deps` (and its
-`exports` when the resources are part of the module's API), and `<name>_platform_srcs` —
-`ActualResourceCollectors.kt`, the same file for every platform — in `srcs_android`, `srcs_jvm` and
-`srcs_native`, so that it forms the fragment `android-jvm-native` refining `common` below the
-`expect` collectors; `//bazel/compose_resources/tests` compiles the multiplatform fixture as a
-library of the JVM platform alone (`fixture_lib`, with the `expect` collectors in the `common`
-fragment and the `actual` ones in the `jvm` leaf) and a second fixture as a JVM-only module
+`exports` when the resources are part of the module's API), and `ActualResourceCollectors.kt` in
+disjoint qualifiers below `common` — `actual_srcs = ["android", "non_android"]` with
+`<name>_android_srcs` in `srcs_android` and `<name>_non_android_srcs` in `srcs_non_android` of
+`app/shared` and `app/ui-components`, so each branch compiles the `actual` collectors below the
+`expect` ones of `common` without repeating a source label across incomparable qualifiers —;
+`//bazel/compose_resources/tests` compiles the multiplatform fixture as a library of the JVM
+platform alone (`fixture_lib`, with the `expect` collectors in the `common` fragment and
+`:fixture_platform_srcs` in the `jvm` leaf) and a second fixture as a JVM-only module
 (`fixture_single_lib`, `multiplatform = False`), and resolves strings (by locale), drawables (by
 theme), plurals, arrays and raw files through the runtime from the jar. The lookup test runs with
 the desktop variant of the runtime and the Skiko native library of the host (`@maven_kotlinconf`),
@@ -340,7 +346,7 @@ reached a stable Kotlin release yet:
 - **2.4.21** on the JVM and Android toolchain (`KOTLIN` in `MODULE.bazel`, used for the Compose
   compiler plugin, `kotlin-stdlib` and `kotlin-test`);
 - **2.5.20-dev-5696** on Kotlin/Native (`KOTLIN_NATIVE` in `MODULE.bazel`, the default of
-  `kotlin_native` in rules_kotlin `81e7457e`; `2.4.21` remains in rules_kotlin's LLVM/libffi table
+  `kotlin_native` in rules_kotlin `262e0f73`; `2.4.21` remains in rules_kotlin's LLVM/libffi table
   for `kotlin_native.version(version = "2.4.21")`, which falls back to `konanc`).
 
 Because compiler plugins execute inside the compiler of each platform, the root `BUILD.bazel`
@@ -417,17 +423,18 @@ dependency) named the same target.
 ### `app/ui-components`
 
 `//app/ui-components:ui_components` is a `kt_multiplatform_library` for `jvm`, `android`,
-`ios_arm64` and `ios_simulator_arm64` along the default KMP hierarchy, with `//:compose_plugin` in
+`ios_arm64` and `ios_simulator_arm64` along the default KMP hierarchy and the alias
+`non_android = ["jvm", "ios_arm64", "ios_simulator_arm64"]`, with `//:compose_plugin` in
 `plugins_jvm` and `plugins_android` and `//:compose_native_plugin` in `plugins_native`, the common
-dependencies in `deps` and `exports`, the Ktor engines in `deps_jvm`,
-`deps_android` and `deps_ios`, and the fragments derived from the groups and platforms listing each
-source — the `srcs` of the macro (`src/commonMain` plus the generated `UiRes` accessors and
-`expect` collectors) are the fragment `common`; `:ui_components_resources_platform_srcs` (listed in
-`srcs_android`, `srcs_jvm` and `srcs_native`) is `android-jvm-native`, refining `common`;
-`src/nonAndroidMain` (the `actual` theme switch of the platforms without a `Configuration`, in
-`srcs_jvm` and `srcs_native`) is `jvm-native`, refining `android-jvm-native`; and `src/androidMain`
-is the leaf `android` (refining `android-jvm-native`), while the leaves of the JVM and the iOS
-targets are empty (refining `jvm-native`); the former `src/webMain` was removed with the web app
+dependencies in `deps` and `exports`, the Ktor engines in `deps_jvm`, `deps_android` and
+`deps_ios`, and the fragments declared per targeted group, alias and platform leaf — the `srcs` of
+the macro (`src/commonMain` plus the generated `UiRes` accessors and `expect` collectors) are the
+fragment `common`; `src/nonAndroidMain` (the `actual` theme switch of the platforms without a
+`Configuration`) plus `:ui_components_resources_non_android_srcs` in `srcs_non_android` are the
+fragment `non_android`, refining `common`; and `src/androidMain` plus
+`:ui_components_resources_android_srcs` in `srcs_android` are the leaf `android` (refining
+`common`), while the leaves of the JVM and the iOS targets are empty (refining `non_android`); the
+former `src/webMain` was removed with the web app
 (see [Unsupported](#unsupported)). The resources are packaged per platform the way the Compose
 runtime reads them:
 
@@ -447,12 +454,10 @@ bazel build --platforms=@rules_kotlin//kotlin/native/platforms:ios_simulator_arm
 bazel run //app/ui-components:ui_components.fragments
 ```
 
-Three generic fixes in rules_kotlin came out of it: the `<name>_srcs` filegroup of
-`kt_multiplatform_library` lists a source once when several platforms compile it (the generated
-`ActualResourceCollectors.kt`); `kt_jvm_import` accepts any `JavaInfo` in `exports` (Ktor's OkHttp
-engine exports OkHttp, an `aar_import` on Android); and an `aar_import` of the hub exports the
-imports a redirect stands for, as `aar_import.exports` only takes imports (Coil exports the Compose
-foundation redirect).
+Two generic fixes in rules_kotlin came out of it: `kt_jvm_import` accepts any `JavaInfo` in
+`exports` (Ktor's OkHttp engine exports OkHttp, an `aar_import` on Android); and an `aar_import` of
+the hub exports the imports a redirect stands for, as `aar_import.exports` only takes imports (Coil
+exports the Compose foundation redirect).
 
 ### `app/shared`
 
@@ -460,23 +465,23 @@ foundation redirect).
 `ios_simulator_arm64` with the Metro, Compose and serialization plugins in `plugins_jvm`,
 `plugins_android` and `plugins_native`, the same shape as `ui-components`:
 
-- the sources are passed along the hierarchy (`COMMON + NON_WEB` in `srcs`, `NON_ANDROID` in
-  `srcs_jvm` and `srcs_native`, `IOS` in `srcs_ios`, `JVM` in `srcs_jvm`, `ANDROID` in
-  `srcs_android`, and `:shared_resources_platform_srcs` in `srcs_android`, `srcs_jvm` and
-  `srcs_native`), from which the macro derives the fragments: `src/commonMain`, the generated `Res`
-  accessors (`expect` collectors) and `src/nonWebMain` are `common`; `:shared_resources_platform_srcs`
-  (`actual` collectors) is `android-jvm-native`, refining `common`; `src/nonAndroidMain` (the SVG
-  decoder of the Skia platforms) is `jvm-native`, refining `android-jvm-native`; `src/iosMain` is
-  `ios`, refining `jvm-native`; and `src/jvmMain` and `src/androidMain` are the leaves `jvm`
-  (refining `jvm-native`) and `android` (refining `android-jvm-native`), while the leaves of the
-  iOS targets are empty (refining `ios`);
+- the sources are passed along the hierarchy and the `non_android` alias (`COMMON + NON_WEB` in
+  `srcs`, `NON_ANDROID + :shared_resources_non_android_srcs` in `srcs_non_android`, `IOS` in
+  `srcs_ios`, `JVM` in `srcs_jvm`, and `ANDROID + :shared_resources_android_srcs` in
+  `srcs_android`), from which the macro declares the fragments: `src/commonMain`, the generated
+  `Res` accessors (`expect` collectors) and `src/nonWebMain` are `common`; `src/nonAndroidMain`
+  (the SVG decoder of the Skia platforms) and `:shared_resources_non_android_srcs` (`actual`
+  collectors) are `non_android`, refining `common`; `src/iosMain` is `ios`, refining `non_android`;
+  and `src/jvmMain` and `src/androidMain` + `:shared_resources_android_srcs` are the leaves `jvm`
+  (refining `non_android`) and `android` (refining `common`), while the leaves of the iOS targets
+  are empty (refining `ios`);
 - `src/nonWebMain` (the Okio file storage `OkioAssetStorage` and the `BrowserIntegration` of the
   non-web platforms, with Okio as its dependency) keeps its Gradle name although the Bazel build
   has no web targets, so the sources stay where upstream has them. It is part of the `srcs` of the
   macro, so it merges into the `common` fragment, which is why `BrowserIntegration` is a plain
   composable of `commonMain` now and not an `expect` there with its `actual` in `nonWebMain`: an
   `expect` and its `actual` cannot live in one fragment. The Android library compiles
-  `src/androidMain` on top of `android-jvm-native` and `common`;
+  `src/androidMain` and `:shared_resources_android_srcs` on top of `common`;
 - the `api` dependencies of the former Gradle file (`//core`, `//app/ui-components:ui_components`,
   the Compose runtime, foundation, animation and `components-resources`, the Ktor logging, content
   negotiation and JSON serialization, KMPNotifier) are the `exports` of the macro (and part of its

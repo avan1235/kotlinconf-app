@@ -106,11 +106,11 @@ Each screen has a corresponding `*ViewModel` that takes `ConferenceService` as a
 
 **Source Set Hierarchy**
 
-`kt_multiplatform_library` follows Kotlin Multiplatform's default hierarchy (`platforms` lists the leaf platforms, its `srcs`, `deps`, `exports` and `plugins` are `common`, and `<attr>_<group or platform>` — e.g. `srcs_ios`, `srcs_native`, `deps_android` — are concatenated down each platform's lineage while `jvm`, `android` and `native` dicts hold the remaining library attributes). rules_kotlin derives the K2 fragments from the groups and platforms that list each source (`common`, `ios`, or `<owner1>-<owner2>` when shared across branches; a fragment has no deps, each platform compiles the fragments of its lineage against its own concatenated `deps`). The Gradle intermediate source sets of `app/shared` are Starlark source lists in `app/shared/BUILD.bazel`:
-- `nonAndroidMain` — listed in `srcs_jvm` and `srcs_native`: the fragment `jvm-native`, refining `android-jvm-native` (the generated `actual` resource collectors) and `common`
+`kt_multiplatform_library` follows Kotlin Multiplatform's default hierarchy plus named platform-set `aliases` (`platforms` lists the leaf platforms, `aliases` names custom platform subsets, its `srcs`, `deps`, `exports` and `plugins` are `common`, and `<attr>_<group, alias or platform>` — e.g. `srcs_ios`, `srcs_non_android`, `deps_android` — are inherited by each covered platform while `jvm`, `android` and `native` dicts hold the remaining library attributes). rules_kotlin declares one K2 fragment per targeted group or alias (`common`, `non_android`, `ios`) and per platform leaf, refined by platform inclusion (a fragment has no deps; each platform compiles the fragments covering it against its own concatenated `deps`). The Gradle intermediate source sets of `app/shared` are wired in `app/shared/BUILD.bazel`:
+- `nonAndroidMain` — listed in `srcs_non_android` of `aliases = {"non_android": ["jvm", "ios_arm64", "ios_simulator_arm64"]}` (alongside `:shared_resources_non_android_srcs` from `compose_resources(..., actual_srcs = ["android", "non_android"])`): the fragment `non_android`, refining `common`
 - `nonWebMain` — part of the `srcs` of the macro (compiled by every platform), so it is part of the `common` fragment (has `okio` dependency; kept from the time the web targets existed); that merge is why `BrowserIntegration` is a plain composable of `commonMain`, not an `expect` there with its `actual` in `nonWebMain`
 
-`app/ui-components` has `nonAndroidMain` the same way.
+`app/ui-components` declares the `non_android` alias for `nonAndroidMain` and `actual_srcs` the same way.
 
 ## Backend Architecture
 
