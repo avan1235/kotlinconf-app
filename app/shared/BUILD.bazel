@@ -1,8 +1,8 @@
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_apple//apple:ios.bzl", "ios_unit_test")
 load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library", "kt_multiplatform_test")
 load("//:version.bzl", "VERSION_CODE", "VERSION_NAME")
 load("//bazel:compose_resources.bzl", "compose_resources")
-load(":ios_test.bzl", "shared_ios_unit_test")
 
 # The shared module of the apps: the screens, the services, the storage and the Metro dependency
 # graph, a Kotlin Multiplatform library for the JVM, Android and the iOS targets, with the Compose,
@@ -254,10 +254,17 @@ kt_multiplatform_test(
     deps_android = JUNIT_TEST_DEPS,
     deps_jvm = JUNIT_TEST_DEPS,
     ios = dict(
+        # KMPNotifier's iOS klib refers to FirebaseMessaging's FIRMessaging class; -ObjC and
+        # -lsqlite3 match //app/iosApp:KotlinConf.
+        linkopts = [
+            "-ObjC",
+            "-lsqlite3",
+        ],
         minimum_os_version = "16.0",
         timeout = "moderate",
+        deps = ["@swiftpkg_firebase_ios_sdk//:FirebaseMessaging"],
     ),
-    ios_test_rule = shared_ios_unit_test,
+    ios_test_rule = ios_unit_test,
     library = ":shared",
     platforms = [
         "jvm",
