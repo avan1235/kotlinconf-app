@@ -10,10 +10,10 @@ concurrency:
   cancel-in-progress: true
 
 # The Bazel build of everything (see docs/bazel.md): the desktop app, the backend and its tests, the
-# Android APK and the JVM tests on Linux and macOS, plus the iOS app and its bundle test on macOS
-# (.bazelrc leaves app/iosApp out of a Linux build). Bazel fetches the Kotlin Multiplatform rules
-# itself: MODULE.bazel pins a commit of the kmp branch of JetBrains/rules_kotlin (archive_override),
-# which the repository cache keeps between runs.
+# Android APK and the JVM/Android tests on Linux and macOS, plus the iOS app, its bundle test and
+# the iOS simulator tests on macOS (.bazelrc leaves app/iosApp out of a Linux build). Bazel fetches
+# the Kotlin Multiplatform rules itself: MODULE.bazel pins a commit of the kmp branch of
+# JetBrains/rules_kotlin (archive_override), which the repository cache keeps between runs.
 jobs:
   build:
     name: Build and test (${{ matrix.os }})

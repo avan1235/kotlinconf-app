@@ -15,16 +15,20 @@ CORE_API_DEPS = [
 # sources, in the `srcs` of the macro, form the K2 fragment `common`, and the leaf of every platform
 # is empty.
 #
-# The Android library is only built for an Android platform (android_binary transitions to
-# //:arm64-v8a), where the @kmp_maven aliases select the Android variants of the libraries; a
-# build of the package for another platform skips it, as it skips the iOS targets.
+# The Android library is only built for an Android consumer (android_binary transitions to
+# //:arm64-v8a, and kt_android_local_test turns on rules_android's host hybrid mode), where
+# @rules_kotlin//kotlin/settings:android matches and the @kmp_maven aliases select the Android
+# variants of the libraries; a plain host build skips it, as it skips the iOS targets.
 kt_multiplatform_library(
     name = "core",
     srcs = glob(["src/commonMain/kotlin/**/*.kt"]),
     android = dict(
         custom_package = "com.jetbrains.kotlinconf.core",
         manifest = "src/androidMain/AndroidManifest.xml",
-        target_compatible_with = ["@platforms//os:android"],
+        target_compatible_with = select({
+            "@rules_kotlin//kotlin/settings:android": [],
+            "//conditions:default": ["@platforms//:incompatible"],
+        }),
     ),
     platforms = [
         "jvm",

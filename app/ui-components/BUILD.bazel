@@ -83,9 +83,11 @@ ANDROID = glob(["src/androidMain/kotlin/**/*.kt"])
 # ANDROID + :ui_components_resources_android_srcs (`srcs_android`) is the leaf `android` (refining
 # common); the leaves of the JVM and the konan targets are empty (refining non_android).
 #
-# The Android library is only built for an Android platform (android_binary transitions to
-# //:arm64-v8a), where the @kmp_maven aliases select the Android variants of Compose and Coil;
-# built for another platform it would get the desktop ones, so a build of the package skips it.
+# The Android library is only built for an Android consumer (android_binary transitions to
+# //:arm64-v8a, and kt_android_local_test turns on rules_android's host hybrid mode), where
+# @rules_kotlin//kotlin/settings:android matches and the @kmp_maven aliases select the Android
+# variants of Compose and Coil; built for the plain host it would get the desktop ones, so a host
+# build of the package skips it.
 kt_multiplatform_library(
     name = "ui_components",
     srcs = COMMON,
@@ -101,7 +103,10 @@ kt_multiplatform_library(
         assets_dir = "ui_components_resources/resources",
         custom_package = "com.jetbrains.kotlinconf.ui",
         manifest = "src/androidMain/AndroidManifest.xml",
-        target_compatible_with = ["@platforms//os:android"],
+        target_compatible_with = select({
+            "@rules_kotlin//kotlin/settings:android": [],
+            "//conditions:default": ["@platforms//:incompatible"],
+        }),
     ),
     deps_android = [KTOR_OKHTTP],
     deps_ios = [KTOR_DARWIN],

@@ -31,7 +31,7 @@ bazel run //backend -- -port=8081
 # Run backend tests (one target per test class; or a single one, e.g. //backend:MapsApiTest)
 bazel test //backend:tests
 
-# Run shared module tests (JVM target)
+# Run shared module tests (JVM, Android local test, and iOS simulator on macOS)
 bazel test //app/shared:tests
 
 # Re-pin the dependency manifests after changing the artifacts in MODULE.bazel

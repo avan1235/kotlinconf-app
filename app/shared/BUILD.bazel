@@ -2,6 +2,7 @@ load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library", "kt_multiplatform_test")
 load("//:version.bzl", "VERSION_CODE", "VERSION_NAME")
 load("//bazel:compose_resources.bzl", "compose_resources")
+load(":ios_test.bzl", "shared_ios_unit_test")
 
 # The shared module of the apps: the screens, the services, the storage and the Metro dependency
 # graph, a Kotlin Multiplatform library for the JVM, Android and the iOS targets, with the Compose,
@@ -165,12 +166,14 @@ IOS = glob(["src/iosMain/kotlin/**/*.kt"])
 # empty (refining ios). The `actual` declarations are in the leaves and the fragments below `common`,
 # so every platform compiles one `actual` per `expect`.
 #
-# The Android library is only built for an Android platform (android_binary transitions to
-# //:arm64-v8a), where the @kmp_maven aliases select the Android variants of the libraries: its
-# own deps (androidsvg, preference-ktx, metrox-android) have no other variant, and Compose has to be
-# the Android one, so a build of the package for another platform skips it, as it skips the iOS targets.
-# Its manifest (the alarm receiver of the local notifications and its permissions) is merged into the
-# one of //app/androidApp with the manifests of the other libraries.
+# The Android library is only built for an Android consumer (android_binary transitions to
+# //:arm64-v8a, and kt_android_local_test turns on rules_android's host hybrid mode), where
+# @rules_kotlin//kotlin/settings:android matches and the @kmp_maven aliases select the Android
+# variants of the libraries: its own deps (androidsvg, preference-ktx, metrox-android) have no
+# other variant, and Compose has to be the Android one, so a plain host build of the package skips
+# it, as it skips the iOS targets. Its manifest (the alarm receiver of the local notifications and
+# its permissions) is merged into the one of //app/androidApp with the manifests of the other
+# libraries.
 kt_multiplatform_library(
     name = "shared",
     srcs = COMMON + NON_WEB,
@@ -187,7 +190,10 @@ kt_multiplatform_library(
         custom_package = "org.jetbrains.kotlinconf",
         exports_manifest = 1,
         manifest = "src/androidMain/AndroidManifest.xml",
-        target_compatible_with = ["@platforms//os:android"],
+        target_compatible_with = select({
+            "@rules_kotlin//kotlin/settings:android": [],
+            "//conditions:default": ["@platforms//:incompatible"],
+        }),
     ),
     deps_android = ANDROID_DEPS,
     deps_ios = IOS_DEPS,
@@ -213,18 +219,24 @@ kt_multiplatform_library(
     deps = SHARED_API_DEPS + SHARED_DEPS,
 )
 
-# The tests of the JVM and Android: Gradle's commonTest, run on both platforms, and jvmTest, on the
-# JVM only, on kotlin.test over the JUnit 4 of the Bazel test runner. kt_multiplatform_test declares
-# `tests_jvm` (a kt_jvm_test) and `tests_android` (a kt_android_local_test), each a friend of the
-# library of its platform (`shared_jvm`, `shared_android`), and the test_suite `tests`; each runs
-# the test classes of its own jar.
+# The tests of the JVM, Android and iOS simulator: Gradle's commonTest, run on all three platforms,
+# and jvmTest, on the JVM only. kt_multiplatform_test declares `tests_jvm` (a kt_jvm_test),
+# `tests_android` (a kt_android_local_test, selecting the Android variants on the host through
+# @rules_kotlin//kotlin/settings:android), `tests_ios_lib` (a kt_native_xctest_library) and
+# `tests_ios` (an ios_unit_test running in the iOS simulator on macOS arm64, skipped elsewhere),
+# each a friend of the library of its platform (`shared_jvm`, `shared_android`, `shared_native`),
+# and the test_suite `tests`. The device target ios_arm64 is not listed: its tests would need a
+# signed bundle.
 TEST_DEPS = SHARED_API_DEPS + SHARED_DEPS + [
     KMP + name
     for name in [
         "com_russhwolf_multiplatform_settings_test",
         "org_jetbrains_kotlinx_kotlinx_coroutines_test",
     ]
-] + [
+]
+
+# kotlin.test on the JVM and Android, over JUnit 4; Kotlin/Native bundles its own kotlin.test.
+JUNIT_TEST_DEPS = [
     "@maven_kotlinconf//:" + name
     for name in [
         "junit_junit",
@@ -238,10 +250,19 @@ kt_multiplatform_test(
     size = "small",
     timeout = "short",
     srcs = glob(["src/commonTest/kotlin/**/*.kt"]),
+    android = dict(manifest_values = {"minSdkVersion": "28"}),
+    deps_android = JUNIT_TEST_DEPS,
+    deps_jvm = JUNIT_TEST_DEPS,
+    ios = dict(
+        minimum_os_version = "16.0",
+        timeout = "moderate",
+    ),
+    ios_test_rule = shared_ios_unit_test,
     library = ":shared",
     platforms = [
         "jvm",
         "android",
+        "ios_simulator_arm64",
     ],
     srcs_jvm = glob(["src/jvmTest/kotlin/**/*.kt"]),
     deps = TEST_DEPS,

@@ -13,7 +13,7 @@ built, see [Unsupported](#unsupported).
 | `core`              | `//core` (alias), `//core:core_jvm`, `//core:core_android`, `//core:core_native`, `//core:core.fragments` | JVM, Android and iOS build |
 | `backend`           | `//backend` (server, `bazel run`), `//backend:backend_deploy.jar` (runnable jar), `//backend:tests` (9 test classes) | builds, runs, tests pass |
 | `app/ui-components` | `//app/ui-components:ui_components` (alias), `:ui_components_jvm`, `:ui_components_android`, `:ui_components_native`, `:ui_components.fragments`, `:ui_components_resources` (the `UiRes` resources) | JVM, Android and iOS (`ios_arm64`, `ios_simulator_arm64`) libraries build |
-| `app/shared`        | `//app/shared` (alias), `//app/shared:shared_jvm`, `:shared_android`, `:shared_native`, `:shared.fragments`, `:shared_resources` (the `Res` resources), `//app/shared:tests` (`kt_multiplatform_test`: `:tests_jvm`, `:tests_android`) | JVM, Android and iOS libraries build, JVM tests pass (the Android one is skipped) |
+| `app/shared`        | `//app/shared` (alias), `//app/shared:shared_jvm`, `:shared_android`, `:shared_native`, `:shared.fragments`, `:shared_resources` (the `Res` resources), `//app/shared:tests` (`kt_multiplatform_test`: `:tests_jvm`, `:tests_android`, `:tests_ios`) | JVM, Android and iOS libraries build; JVM, Android and iOS simulator tests pass |
 | `app/desktopApp`    | `//app/desktopApp` (the `kt_jvm_binary`, `bazel run`), `:desktop_lib`, `:desktop_resources` | builds and runs on macOS arm64 |
 | `app/androidApp`    | `//app/androidApp` (the debug APK; `bazel mobile-install //app/androidApp` installs it incrementally), `:android_lib`, `:google_services` | APK builds, debug-signed; installs and runs on an emulator with `mobile-install` too |
 | `app/iosApp`        | `//app/iosApp:KotlinConf` (the app, an `ios_application` of rules_apple), `:shared` (the Kotlin/Native framework), `:compose-resources`, `:ipa_test`, `:xcodeproj` | builds an IPA for the arm64 simulator and runs there; device build needs a provisioning profile |
@@ -59,7 +59,7 @@ built, see [Unsupported](#unsupported).
 
 `MODULE.bazel` takes rules_kotlin, with its Kotlin Multiplatform rules and the `kmp_maven`
 extension, from a commit of the `kmp` branch of
-[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`4837d476`), the
+[JetBrains/rules_kotlin](https://github.com/JetBrains/rules_kotlin/tree/kmp) (`e616b3ba`), the
 way the README of rules_kotlin installs an unreleased revision ("From HEAD (Bzlmod)"):
 
 ```starlark
@@ -87,7 +87,7 @@ Every Kotlin compilation in the workspace runs through the Kotlin Build Tools AP
   the JVM and Android `KotlinCompile` multiplex worker from `K2JVMCompiler` to
   `JvmCompilationOperation` (`kotlin-build-tools-impl` + `kotlin-compiler-embeddable` +
   `jvm-abi-gen` in a cached isolated classloader).
-- `experimental_native_build_tools_api` is on by default in rules_kotlin (`4837d476`): every
+- `experimental_native_build_tools_api` is on by default in rules_kotlin (`e616b3ba`): every
   `kt_native_library` compiles its `.klib` (and `.header.klib`) through
   `NativeKlibCompilationOperation` in-process on Kotlin/Native `2.5.20-dev-5696` (`konan_launcher`
   with `SharedApiClassesClassLoader`, producing byte-identical klibs to `konanc`; pass
@@ -216,7 +216,7 @@ configuration, where `bazel-bin/app/androidApp/androidApp.apk` is missing or sta
 
 ```sh
 bazel build //...     # everything the host builds: the JVM libraries, the backend, the tools, the APK; on macOS also the iOS app (KotlinConf.ipa)
-bazel test //...      # the backend, app/shared, resources-generator and google-services tests; on macOS also the IPA test of the iOS app
+bazel test //...      # the backend, app/shared (JVM, Android, and on macOS iOS simulator), resources-generator and google-services tests; on macOS also the IPA test of the iOS app
 ```
 
 The whole-repository build skips the targets of the other platforms as incompatible rather than
@@ -225,24 +225,27 @@ failing on them, so it is the gate to run on a change; it does include the apps,
 `--android_platforms` and `--ios_multi_cpus` whatever the platform of the build (the APK takes about
 90 s after a change to the Android toolchain, a few seconds otherwise):
 
-- the Android libraries (`core_android`, `ui_components_android`, `shared_android`) are
-  `target_compatible_with = ["@platforms//os:android"]`: they are only meaningful on an Android
-  platform, where the `@kmp_maven` aliases select the Android variants (Compose, Coil); on the host
-  they would get the desktop ones, and the Android-only dependencies of `app/shared` (AndroidSVG,
-  `preference-ktx`, `metrox-android`) have no other variant at all. `android_binary` builds them
-  for `//:arm64-v8a` (`--android_platforms` in `.bazelrc`), as does an explicit
-  `--platforms=//:arm64-v8a`;
+- the Android libraries (`core_android`, `ui_components_android`, `shared_android`) select
+  `target_compatible_with` on `@rules_kotlin//kotlin/settings:android`: they are only meaningful for
+  an Android consumer (on `@platforms//os:android` under `android_binary`, or in rules_android's
+  host hybrid mode under `kt_android_local_test`), where the `@kmp_maven` aliases select the Android
+  variants (Compose, Coil); on a plain host build they would get the desktop ones, and the
+  Android-only dependencies of `app/shared` (AndroidSVG, `preference-ktx`, `metrox-android`) have no
+  other variant at all. `android_binary` builds them for `//:arm64-v8a` (`--android_platforms` in
+  `.bazelrc`), `tests_android` builds them on the host in hybrid mode, and an explicit
+  `--platforms=//:arm64-v8a` builds them too;
 - the native libraries of the multiplatform modules (`core_native`, `ui_components_native`,
   `shared_native`) are compatible with the iOS platforms alone (a fragment target has no `deps`),
   so a host build of a package skips them and never resolves their iOS-only dependencies (Ktor's
   Darwin engine) for the JVM; `//app/iosApp:KotlinConf` builds them under its own transition to
   the simulator platform;
 - on macOS, `//...` therefore includes `//app/iosApp:KotlinConf` and `bazel test //...` its
-  `:ipa_test` (16 test targets in all): the first build of the IPA takes about five minutes (the
-  Firebase compile and the link of the Kotlin/Native framework, see [`app/iosApp`](#appiosapp)), a
-  warm one a few seconds. On Linux the `app/iosApp` package is deleted (`common:linux
-  --deleted_packages` in `.bazelrc`), so `//...` has no iOS target there (15 test targets); a Mac
-  without Xcode passes `--deleted_packages=app/iosApp` itself.
+  `:ipa_test` as well as `//app/shared:tests_ios` (18 test targets in all): the first build of the
+  IPA takes about five minutes (the Firebase compile and the link of the Kotlin/Native framework,
+  see [`app/iosApp`](#appiosapp)), a warm one a few seconds. On Linux the `app/iosApp` package is
+  deleted (`common:linux --deleted_packages` in `.bazelrc`), and `//app/shared:tests_ios` is skipped
+  as incompatible, so `//...` has no iOS target there (16 test targets); a Mac without Xcode passes
+  `--deleted_packages=app/iosApp` itself.
 
 A clean rebuild (`bazel clean --expunge`, then `bazel build //...` and `bazel test //...` with no
 `user.bazelrc` and no `MODULE.bazel.lock`, against the pinned rules_kotlin archive) takes about 10
@@ -346,7 +349,7 @@ reached a stable Kotlin release yet:
 - **2.4.21** on the JVM and Android toolchain (`KOTLIN` in `MODULE.bazel`, used for the Compose
   compiler plugin, `kotlin-stdlib` and `kotlin-test`);
 - **2.5.20-dev-5696** on Kotlin/Native (`KOTLIN_NATIVE` in `MODULE.bazel`, the default of
-  `kotlin_native` in rules_kotlin `4837d476`; `2.4.21` remains in rules_kotlin's LLVM/libffi table
+  `kotlin_native` in rules_kotlin `e616b3ba`; `2.4.21` remains in rules_kotlin's LLVM/libffi table
   for `kotlin_native.version(version = "2.4.21")`, which falls back to `konanc`).
 
 Because compiler plugins execute inside the compiler of each platform, the root `BUILD.bazel`
@@ -504,17 +507,24 @@ Metro generates the graphs of the platforms (`JvmAppGraph`, `IosAppGraph`; the A
 `app/androidApp`) and the `metro.hints` of the contributions, which the Android app's graph will
 aggregate from the library.
 
-The tests are a `kt_multiplatform_test` for `jvm` and `android`: `src/commonTest`
-(`ApplicationStorageImplMigrationTest`, 6 tests) for both and `src/jvmTest` (`OkioAssetStorageTest`,
-4 tests) in `srcs_jvm`, on kotlin.test over JUnit 4, with `multiplatform-settings-test` and
-`kotlinx-coroutines-test`. `tests_jvm` (a `kt_jvm_test`, the Gradle `jvmTest` run, 10 tests) and
-`tests_android` (a `kt_android_local_test`) are associates of `shared_jvm` and `shared_android`, so
-they see their `internal` declarations as the Gradle test source sets do, and each runs the test
-classes of its own jar through the suite of rules_kotlin. `tests_android` is skipped: a local test
-builds for the host, where `shared_android` is incompatible (`target_compatible_with` Android) and
-the `@kmp_maven` aliases would select the JVM variants anyway, and for `--platforms=//:arm64-v8a`
-no Java runtime toolchain matches, so it cannot run until rules_kotlin builds its associate for an
-Android platform.
+The tests are a `kt_multiplatform_test` for `jvm`, `android` and `ios_simulator_arm64`:
+`src/commonTest` (`ApplicationStorageImplMigrationTest`, 6 tests) for all three and `src/jvmTest`
+(`OkioAssetStorageTest`, 4 tests) in `srcs_jvm`, with `multiplatform-settings-test` and
+`kotlinx-coroutines-test` in `deps` and `kotlin-test-junit` + JUnit 4 in `deps_jvm` and
+`deps_android` (Kotlin/Native bundles its own `kotlin.test`):
+
+- `tests_jvm` (`kt_jvm_test`, associate `shared_jvm`): runs all 10 tests on the host JVM;
+- `tests_android` (`kt_android_local_test`, associate `shared_android`, `minSdkVersion` 28 for
+  `metrox-android`): runs the 6 common tests on the host JVM in rules_android's host hybrid mode,
+  where `@rules_kotlin//kotlin/settings:android` selects the Android variants of `core`,
+  `ui-components`, `shared` and `@kmp_maven`;
+- `tests_ios` (rules_apple's `ios_unit_test` over `tests_ios_lib`, a `kt_native_xctest_library`
+  with associate `shared_native`, wrapped by `shared_ios_unit_test` in `app/shared/ios_test.bzl`):
+  runs the 6 common tests in the iOS simulator on macOS arm64 (`minimum_os_version = "16.0"`,
+  skipped as incompatible on Linux). The wrapper links `@swiftpkg_firebase_ios_sdk//:FirebaseMessaging`
+  with `-ObjC -lsqlite3` for KMPNotifier's `FIRMessaging` reference, and drops `alwayslink` on the
+  Kotlin/Native `.a` archive (keeping `alwayslink` on the XCTest shim `.lo`) so `-force_load` does
+  not pull Skiko's duplicate archive members into the test bundle.
 
 ```shell
 bazel build //app/shared:shared_jvm
@@ -522,6 +532,7 @@ bazel test //app/shared:tests --test_output=errors
 bazel build --platforms=//:arm64-v8a //app/shared:shared_android
 bazel build --platforms=@rules_kotlin//kotlin/native/platforms:ios_simulator_arm64 //app/shared:shared_native
 bazel run //app/shared:shared.fragments
+bazel run //app/shared:tests.fragments
 ```
 
 `shared_native` is compatible with the configured konan targets alone (`konan_targets_compatibility`

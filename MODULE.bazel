@@ -15,14 +15,15 @@ module(name = "kotlinconf_app")
 bazel_dep(name = "rules_kotlin", version = "2.2.0")
 archive_override(
     module_name = "rules_kotlin",
-    urls = ["https://github.com/JetBrains/rules_kotlin/archive/4837d476ed0d5c86fbeea7d490712effae81e444.tar.gz"],
-    strip_prefix = "rules_kotlin-4837d476ed0d5c86fbeea7d490712effae81e444",
-    integrity = "sha256-1vxsVUQU8R3k1q36nRdW7Fm2M5nmzKkXsfVwlIYrkGE=",
+    urls = ["https://github.com/JetBrains/rules_kotlin/archive/e616b3ba6718f3ec2ace7846176e93f32b9e8a13.tar.gz"],
+    strip_prefix = "rules_kotlin-e616b3ba6718f3ec2ace7846176e93f32b9e8a13",
+    integrity = "sha256-fsO3XDoi1T34aEe1ntnUG5HYTAkhrMnW3mh5gs3qncc=",
 )
 
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
 bazel_dep(name = "platforms", version = "1.0.0")
-bazel_dep(name = "rules_android", version = "0.8.0")
+bazel_dep(name = "rules_android", version = "0.8.1")
+bazel_dep(name = "rules_cc", version = "0.2.25")
 bazel_dep(name = "rules_java", version = "9.3.0")
 bazel_dep(name = "rules_jvm_external", version = "7.1")
 bazel_dep(name = "rules_shell", version = "0.6.1")
